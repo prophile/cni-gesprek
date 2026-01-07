@@ -17,12 +17,18 @@ impl NetworkDriver for DryRunDriver {
     }
 
     fn get_interface_gateway(&self, ifname: &str) -> Result<Option<String>, Box<dyn Error>> {
-        self.log(&format!("Checking gateway on {}... (Simulated: fe80::1)", ifname));
+        self.log(&format!(
+            "Checking gateway on {}... (Simulated: fe80::1)",
+            ifname
+        ));
         Ok(Some("fe80::1".to_string()))
     }
 
     fn get_interface_subnet(&self, ifname: &str) -> Result<(String, u8), Box<dyn Error>> {
-        self.log(&format!("Checking subnet on {}... (Simulated: 2001:db8::1/64)", ifname));
+        self.log(&format!(
+            "Checking subnet on {}... (Simulated: 2001:db8::1/64)",
+            ifname
+        ));
         Ok(("2001:db8::1".to_string(), 64))
     }
 
@@ -50,7 +56,10 @@ impl NetworkDriver for DryRunDriver {
     }
 
     fn set_netns(&self, ifname: &str, netns_path: &Path) -> Result<(), Box<dyn Error>> {
-        self.log(&format!("ip link set dev {} netns {:?}", ifname, netns_path));
+        self.log(&format!(
+            "ip link set dev {} netns {:?}",
+            ifname, netns_path
+        ));
         Ok(())
     }
 
@@ -63,14 +72,32 @@ impl NetworkDriver for DryRunDriver {
         gateway: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         let ns = netns_path.display();
-        self.log(&format!("nsenter --net={} -F -- ip link set dev {} name {}", ns, temp_ifname, target_ifname));
-        self.log(&format!("nsenter --net={} -F -- ip addr add {} dev {}", ns, ip_cidr, target_ifname));
-        self.log(&format!("nsenter --net={} -F -- sysctl -w net.ipv6.conf.{}.accept_ra=2", ns, target_ifname));
-        self.log(&format!("nsenter --net={} -F -- ip link set up dev {}", ns, target_ifname));
+        self.log(&format!(
+            "nsenter --net={} -F -- ip link set dev {} name {}",
+            ns, temp_ifname, target_ifname
+        ));
+        self.log(&format!(
+            "nsenter --net={} -F -- ip addr add {} dev {}",
+            ns, ip_cidr, target_ifname
+        ));
+        self.log(&format!(
+            "nsenter --net={} -F -- sysctl -w net.ipv6.conf.{}.accept_ra=2",
+            ns, target_ifname
+        ));
+        self.log(&format!(
+            "nsenter --net={} -F -- ip link set up dev {}",
+            ns, target_ifname
+        ));
         if let Some(gw) = gateway {
-            self.log(&format!("nsenter --net={} -F -- ip -6 route add default via {} dev {}", ns, gw, target_ifname));
+            self.log(&format!(
+                "nsenter --net={} -F -- ip -6 route add default via {} dev {}",
+                ns, gw, target_ifname
+            ));
         }
-        self.log(&format!("nsenter --net={} -F -- ip -j -6 addr show (Wait for DAD)", ns));
+        self.log(&format!(
+            "nsenter --net={} -F -- ip -j -6 addr show (Wait for DAD)",
+            ns
+        ));
         Ok(())
     }
 }

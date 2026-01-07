@@ -16,7 +16,12 @@ pub trait NetworkDriver {
     fn check_interface(&self, ifname: &str) -> Result<(), Box<dyn Error>>;
 
     /// Creates an ipvlan L2 bridge interface on the host.
-    fn create_ipvlan(&self, parent: &str, mode: &str, temp_name: &str) -> Result<(), Box<dyn Error>>;
+    fn create_ipvlan(
+        &self,
+        parent: &str,
+        mode: &str,
+        temp_name: &str,
+    ) -> Result<(), Box<dyn Error>>;
 
     /// Deletes a network interface by name.
     fn delete_interface(&self, ifname: &str) -> Result<(), Box<dyn Error>>;

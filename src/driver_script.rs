@@ -52,7 +52,10 @@ impl NetworkDriver for ScriptDriver {
     }
 
     fn get_interface_gateway(&self, ifname: &str) -> Result<Option<String>, Box<dyn Error>> {
-        let output = Self::run_cmd("ip", &["-6", "-j", "route", "show", "default", "dev", ifname])?;
+        let output = Self::run_cmd(
+            "ip",
+            &["-6", "-j", "route", "show", "default", "dev", ifname],
+        )?;
         let routes: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
 
         if let Some(route) = routes.first() {
@@ -64,7 +67,10 @@ impl NetworkDriver for ScriptDriver {
     }
 
     fn get_interface_subnet(&self, ifname: &str) -> Result<(String, u8), Box<dyn Error>> {
-        let output = Self::run_cmd("ip", &["-j", "-6", "addr", "show", "dev", ifname, "scope", "global"])?;
+        let output = Self::run_cmd(
+            "ip",
+            &["-j", "-6", "addr", "show", "dev", ifname, "scope", "global"],
+        )?;
         let entries: Vec<serde_json::Value> = serde_json::from_str(&output)?;
 
         for entry in entries {
@@ -79,7 +85,7 @@ impl NetworkDriver for ScriptDriver {
                 }
             }
         }
-        
+
         Err(format!("No global IPv6 address found on interface {}", ifname).into())
     }
 
@@ -98,8 +104,8 @@ impl NetworkDriver for ScriptDriver {
         Self::run_cmd(
             "ip",
             &[
-                "link", "add", "link", parent, "name", temp_name, 
-                "type", "ipvlan", "mode", mode, "bridge"
+                "link", "add", "link", parent, "name", temp_name, "type", "ipvlan", "mode", mode,
+                "bridge",
             ],
         )?;
         Ok(())
@@ -137,27 +143,60 @@ impl NetworkDriver for ScriptDriver {
         };
 
         // 1. Rename
-        let args = ns_args(&["ip", "link", "set", "dev", temp_ifname, "name", target_ifname]);
-        Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        let args = ns_args(&[
+            "ip",
+            "link",
+            "set",
+            "dev",
+            temp_ifname,
+            "name",
+            target_ifname,
+        ]);
+        Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )?;
 
         // 2. Add IP
         let args = ns_args(&["ip", "addr", "add", ip_cidr, "dev", target_ifname]);
-        Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )?;
 
         // 3. Sysctl accept_ra=2
         let sysctl_key = format!("net.ipv6.conf.{}.accept_ra=2", target_ifname);
         let args = ns_args(&["sysctl", "-w", &sysctl_key]);
-        Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )?;
 
         // 4. Set UP
         let args = ns_args(&["ip", "link", "set", "up", "dev", target_ifname]);
-        Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>())?;
+        Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )?;
 
         // 5. Add Gateway
         if let Some(gw) = gateway {
-             let args = ns_args(&["ip", "-6", "route", "add", "default", "via", gw, "dev", target_ifname]);
-             // Ignore error (redundant add)
-             let _ = Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>()); 
+            let args = ns_args(&[
+                "ip",
+                "-6",
+                "route",
+                "add",
+                "default",
+                "via",
+                gw,
+                "dev",
+                target_ifname,
+            ]);
+            // Ignore error (redundant add)
+            let _ = Self::run_cmd(
+                "nsenter",
+                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            );
         }
 
         // 6. Strict DAD Check
@@ -171,30 +210,45 @@ impl NetworkDriver for ScriptDriver {
             }
 
             let args = ns_args(&["ip", "-j", "-6", "addr", "show", "dev", target_ifname]);
-            if let Ok(output) = Self::run_cmd("nsenter", &args.iter().map(|s| s.as_str()).collect::<Vec<_>>()) {
-                 let entries: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
-                 let mut found_our_ip = false;
-                 let mut is_ready = false;
-                 let mut is_failed = false;
+            if let Ok(output) = Self::run_cmd(
+                "nsenter",
+                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            ) {
+                let entries: Vec<serde_json::Value> =
+                    serde_json::from_str(&output).unwrap_or_default();
+                let mut found_our_ip = false;
+                let mut is_ready = false;
+                let mut is_failed = false;
 
-                 for entry in entries {
+                for entry in entries {
                     if let Some(addr_infos) = entry.get("addr_info").and_then(|v| v.as_array()) {
                         for info in addr_infos {
                             let local = info.get("local").and_then(|v| v.as_str()).unwrap_or("");
                             if local == target_ip {
                                 found_our_ip = true;
-                                let flags = info.get("flags").and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>())
+                                let flags = info
+                                    .get("flags")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>()
+                                    })
                                     .unwrap_or_default();
-                                
-                                if flags.contains(&"dadfailed") { is_failed = true; } 
-                                else if !flags.contains(&"tentative") { is_ready = true; }
+
+                                if flags.contains(&"dadfailed") {
+                                    is_failed = true;
+                                } else if !flags.contains(&"tentative") {
+                                    is_ready = true;
+                                }
                             }
                         }
                     }
-                 }
-                 if is_failed { return Err(format!("IPv6 DAD failed for {}", target_ip).into()); }
-                 if found_our_ip && is_ready { break; }
+                }
+                if is_failed {
+                    return Err(format!("IPv6 DAD failed for {}", target_ip).into());
+                }
+                if found_our_ip && is_ready {
+                    break;
+                }
             }
             thread::sleep(Duration::from_millis(100));
         }

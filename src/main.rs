@@ -26,7 +26,7 @@ struct CniConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     master: Option<String>,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     podCIDR: Option<String>,
 
@@ -34,7 +34,7 @@ struct CniConfig {
     dns: Option<CniDns>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)] 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct CniDns {
     #[serde(skip_serializing_if = "Option::is_none")]
     nameservers: Option<Vec<String>>,
@@ -64,9 +64,9 @@ struct CniInterface {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CniIp {
-    version: String, 
-    address: String, 
-    interface: usize, 
+    version: String,
+    address: String,
+    interface: usize,
 }
 
 // --- CLI Arguments ---
@@ -91,28 +91,32 @@ fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
     if parts.len() != 2 {
         return Err("Invalid CIDR format".into());
     }
-    
+
     let base_ip = Ipv6Addr::from_str(parts[0])?;
     let prefix_len: u8 = parts[1].parse()?;
-    
+
     if prefix_len > 128 {
         return Err("Invalid prefix length".into());
     }
 
     let base_u128 = u128::from(base_ip);
-    
+
     let mask = if prefix_len == 0 {
         0
     } else {
         let shift = 128 - prefix_len;
         let set_bit = 1u128.checked_shl(shift as u32).unwrap_or(0);
-        if shift == 128 { 0 } else { !(set_bit - 1) }
+        if shift == 128 {
+            0
+        } else {
+            !(set_bit - 1)
+        }
     };
 
     let mut rng = rand::thread_rng();
     let random_part: u128 = rng.gen();
     let final_u128 = (base_u128 & mask) | (random_part & !mask);
-    
+
     let final_ip = Ipv6Addr::from(final_u128);
     Ok(format!("{}/{}", final_ip, prefix_len))
 }
@@ -129,24 +133,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let cni_command = env::var("CNI_COMMAND").unwrap_or_else(|_| "VERSION".to_string());
-    
-    let cni_config: Option<CniConfig> = if ["ADD", "DEL", "CHECK", "STATUS"].contains(&cni_command.as_str()) {
-        let mut buffer = String::new();
-        let _ = io::stdin().read_to_string(&mut buffer); 
-        if !buffer.is_empty() {
-             serde_json::from_str(&buffer).ok()
+
+    let cni_config: Option<CniConfig> =
+        if ["ADD", "DEL", "CHECK", "STATUS"].contains(&cni_command.as_str()) {
+            let mut buffer = String::new();
+            let _ = io::stdin().read_to_string(&mut buffer);
+            if !buffer.is_empty() {
+                serde_json::from_str(&buffer).ok()
+            } else {
+                None
+            }
         } else {
             None
-        }
-    } else {
-        None
-    };
+        };
 
     match cni_command.as_str() {
         "ADD" => cmd_add(&args, cni_config, &*driver),
         "DEL" => cmd_success(),
         "CHECK" => cmd_success(),
-        "GC" => cmd_success(), 
+        "GC" => cmd_success(),
         "VERSION" => cmd_version(),
         "STATUS" => cmd_status(&args, cni_config, &*driver),
         _ => {
@@ -156,7 +161,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn cmd_add(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
+fn cmd_add(
+    args: &Args,
+    config: Option<CniConfig>,
+    driver: &dyn NetworkDriver,
+) -> Result<(), Box<dyn Error>> {
     let config = config.ok_or("Missing CNI configuration on stdin")?;
     let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
     let netns_path = Path::new(&netns_str);
@@ -184,16 +193,20 @@ fn cmd_add(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -
     };
 
     // 3. Detect Default Gateway
-    let gateway = driver.get_interface_gateway(&master_interface).unwrap_or(None);
+    let gateway = driver
+        .get_interface_gateway(&master_interface)
+        .unwrap_or(None);
 
     // 4. Generate Random IP
     let target_ip_cidr = generate_random_ip(&cidr_string)?;
 
     // 5. Create IPvlan (Host Side)
-    let random_suffix: String = (0..8).map(|_| {
-        let idx = rand::random::<usize>() % 16;
-        format!("{:x}", idx)
-    }).collect();
+    let random_suffix: String = (0..8)
+        .map(|_| {
+            let idx = rand::random::<usize>() % 16;
+            format!("{:x}", idx)
+        })
+        .collect();
     let temp_name = format!("ipvl{}", random_suffix);
 
     driver.create_ipvlan(&master_interface, "l2", &temp_name)?;
@@ -205,29 +218,31 @@ fn cmd_add(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -
     }
 
     // 7. Configure Inside Netns
-    if let Err(e) = driver.configure_in_netns(netns_path, &temp_name, &ifname, &target_ip_cidr, gateway.as_deref()) {
+    if let Err(e) = driver.configure_in_netns(
+        netns_path,
+        &temp_name,
+        &ifname,
+        &target_ip_cidr,
+        gateway.as_deref(),
+    ) {
         return Err(e);
     }
 
     // 8. Output Result
     let result = CniResult {
         cniVersion: config.cniVersion,
-        interfaces: vec![
-            CniInterface {
-                name: ifname,
-                mac: "".to_string(), 
-                sandbox: netns_str,
-            }
-        ],
-        ips: vec![
-            CniIp {
-                version: "6".to_string(),
-                address: target_ip_cidr,
-                interface: 0, 
-            }
-        ],
+        interfaces: vec![CniInterface {
+            name: ifname,
+            mac: "".to_string(),
+            sandbox: netns_str,
+        }],
+        ips: vec![CniIp {
+            version: "6".to_string(),
+            address: target_ip_cidr,
+            interface: 0,
+        }],
         // UPDATED: Pass through the DNS config provided in the JSON input
-        dns: config.dns, 
+        dns: config.dns,
     };
 
     println!("{}", serde_json::to_string(&result)?);
@@ -235,7 +250,11 @@ fn cmd_add(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -
     Ok(())
 }
 
-fn cmd_status(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
+fn cmd_status(
+    args: &Args,
+    config: Option<CniConfig>,
+    driver: &dyn NetworkDriver,
+) -> Result<(), Box<dyn Error>> {
     let master_interface = if let Some(cli_iface) = &args.interface {
         cli_iface.clone()
     } else if let Some(c) = config.as_ref().and_then(|c| c.master.as_ref()) {
@@ -246,7 +265,7 @@ fn cmd_status(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver
             Err(_) => std::process::exit(1),
         }
     };
-    
+
     driver.check_interface(&master_interface)?;
     cmd_success()
 }
