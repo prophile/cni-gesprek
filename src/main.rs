@@ -2,6 +2,9 @@ mod driver;
 mod driver_dryrun;
 mod driver_script;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 use clap::Parser;
 use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
