@@ -29,6 +29,21 @@ struct CniConfig {
     
     #[serde(skip_serializing_if = "Option::is_none")]
     podCIDR: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dns: Option<CniDns>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)] 
+struct CniDns {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nameservers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    search: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    options: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -52,11 +67,6 @@ struct CniIp {
     version: String, 
     address: String, 
     interface: usize, 
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct CniDns {
-    nameservers: Option<Vec<String>>,
 }
 
 // --- CLI Arguments ---
@@ -216,7 +226,8 @@ fn cmd_add(args: &Args, config: Option<CniConfig>, driver: &dyn NetworkDriver) -
                 interface: 0, 
             }
         ],
-        dns: None,
+        // UPDATED: Pass through the DNS config provided in the JSON input
+        dns: config.dns, 
     };
 
     println!("{}", serde_json::to_string(&result)?);
