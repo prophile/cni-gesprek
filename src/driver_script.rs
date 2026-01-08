@@ -48,7 +48,8 @@ impl ScriptDriver {
         }
 
         // Only allow alphanumeric, hyphens, underscores, dots - no shell metacharacters
-        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
+        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$")
+            .expect("Failed to compile interface name validation regex - this is a bug");
         if !valid_chars_re.is_match(ifname) {
             return Err(format!("Interface name '{}' contains invalid characters", ifname).into());
         }
@@ -79,8 +80,10 @@ impl ScriptDriver {
         }
 
         // Allow only valid IPv4 or IPv6 CIDR format (no shell metacharacters)
-        let ipv4_cidr_re = Regex::new(r"^[0-9.]+/[0-9]+$").unwrap();
-        let ipv6_cidr_re = Regex::new(r"^[0-9a-fA-F:]+/[0-9]+$").unwrap();
+        let ipv4_cidr_re = Regex::new(r"^[0-9.]+/[0-9]+$")
+            .expect("Failed to compile IPv4 CIDR validation regex - this is a bug");
+        let ipv6_cidr_re = Regex::new(r"^[0-9a-fA-F:]+/[0-9]+$")
+            .expect("Failed to compile IPv6 CIDR validation regex - this is a bug");
 
         if !ipv4_cidr_re.is_match(ip_cidr) && !ipv6_cidr_re.is_match(ip_cidr) {
             return Err(format!("Invalid IP/CIDR format: {}", ip_cidr).into());
@@ -115,7 +118,8 @@ impl ScriptDriver {
         }
 
         // Ensure no unexpected characters (paranoid check)
-        let ipv6_re = Regex::new(r"^[0-9a-fA-F:]+$").unwrap();
+        let ipv6_re = Regex::new(r"^[0-9a-fA-F:]+$")
+            .expect("Failed to compile IPv6 address validation regex - this is a bug");
         if !ipv6_re.is_match(&addr_str) {
             return Err(format!("Invalid IPv6 address format: {}", addr_str).into());
         }

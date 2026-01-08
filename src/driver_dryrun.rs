@@ -22,7 +22,10 @@ impl NetworkDiscovery for DryRunDriver {
             "Checking gateway on {}... (Simulated: fe80::1)",
             ifname
         ));
-        Ok(Some("fe80::1".parse().unwrap()))
+        let gateway_addr = "fe80::1"
+            .parse()
+            .map_err(|e| format!("Failed to parse simulated gateway address: {}", e))?;
+        Ok(Some(gateway_addr))
     }
 
     fn get_interface_subnet(&self, ifname: &str) -> Result<Ipv6Subnet, Box<dyn Error>> {
@@ -30,7 +33,9 @@ impl NetworkDiscovery for DryRunDriver {
             "Checking subnet on {}... (Simulated: 2001:db8::1/64)",
             ifname
         ));
-        let addr = "2001:db8::1".parse().unwrap();
+        let addr = "2001:db8::1"
+            .parse()
+            .map_err(|e| format!("Failed to parse simulated subnet address: {}", e))?;
         Ipv6Subnet::new(addr, 64)
     }
 

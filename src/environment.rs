@@ -199,7 +199,8 @@ impl CniEnvironment {
         }
 
         // Check for valid characters (alphanumeric, hyphen, underscore, dot)
-        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
+        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$")
+            .expect("Failed to compile interface name validation regex - this is a bug");
         if !valid_chars_re.is_match(ifname) {
             return Err(EnvironmentError::InvalidValue {
                 name: "CNI_IFNAME".to_string(),
@@ -237,7 +238,8 @@ impl CniEnvironment {
         }
 
         // Check for valid characters (alphanumeric, hyphen, underscore)
-        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
+        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9_-]+$")
+            .expect("Failed to compile container ID validation regex - this is a bug");
         if !valid_chars_re.is_match(container_id) {
             return Err(EnvironmentError::InvalidValue {
                 name: "CNI_CONTAINERID".to_string(),
