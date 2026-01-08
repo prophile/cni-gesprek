@@ -100,4 +100,30 @@ impl NetworkDriver for DryRunDriver {
         ));
         Ok(())
     }
+
+    fn delete_interface_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let ns = netns_path.display();
+        self.log(&format!(
+            "nsenter --net={} -F -- ip link delete dev {}",
+            ns, ifname
+        ));
+        Ok(())
+    }
+
+    fn interface_exists_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        let ns = netns_path.display();
+        self.log(&format!(
+            "nsenter --net={} -F -- ip link show dev {} (Simulated: exists)",
+            ns, ifname
+        ));
+        Ok(true) // In dry-run mode, assume interface exists for testing
+    }
 }

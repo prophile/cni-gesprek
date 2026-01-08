@@ -129,7 +129,10 @@ pub fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let driver: Box<dyn NetworkDriver> = if args.dry_run {
+    // Check for DRY_RUN environment variable or command line flag
+    let is_dry_run = args.dry_run || env::var("DRY_RUN").is_ok();
+
+    let driver: Box<dyn NetworkDriver> = if is_dry_run {
         Box::new(DryRunDriver)
     } else {
         Box::new(ScriptDriver)
@@ -152,8 +155,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match cni_command.as_str() {
         "ADD" => cmd_add(&args, cni_config, &*driver),
-        "DEL" => cmd_success(),
-        "CHECK" => cmd_success(),
+        "DEL" => cmd_del(&args, cni_config, &*driver, is_dry_run),
+        "CHECK" => cmd_check(&args, cni_config, &*driver, is_dry_run),
         "GC" => cmd_success(),
         "VERSION" => cmd_version(),
         "STATUS" => cmd_status(&args, cni_config, &*driver),
@@ -275,6 +278,94 @@ fn cmd_status(
 
 fn cmd_version() -> Result<(), Box<dyn Error>> {
     println!(r#"{{"cniVersion": "1.0.0", "supportedVersions": ["1.0.0"]}}"#);
+    Ok(())
+}
+
+fn cmd_del(
+    args: &Args,
+    config: Option<CniConfig>,
+    driver: &dyn NetworkDriver,
+    is_dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
+    // DEL command should be idempotent - succeed even if interface doesn't exist
+
+    // Validate required environment variables
+    let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
+    let _container_id = env::var("CNI_CONTAINERID").map_err(|_| "CNI_CONTAINERID not set")?;
+    let ifname = env::var("CNI_IFNAME").map_err(|_| "CNI_IFNAME not set")?;
+
+    let netns_path = Path::new(&netns_str);
+
+    // Check if the network namespace exists at all (skip in dry-run mode)
+    if !is_dry_run && !netns_path.exists() {
+        // Netns doesn't exist, nothing to clean up - this is success
+        return Ok(());
+    }
+
+    // Try to delete the interface from inside the netns
+    // This should be idempotent - if interface doesn't exist, just succeed
+    match driver.delete_interface_in_netns(netns_path, &ifname) {
+        Ok(()) => {
+            // Successfully deleted or interface didn't exist
+            Ok(())
+        }
+        Err(e) => {
+            // Log the error but don't fail - DEL should be idempotent
+            eprintln!("Warning during DEL: {}", e);
+            Ok(())
+        }
+    }
+}
+
+fn cmd_check(
+    args: &Args,
+    config: Option<CniConfig>,
+    driver: &dyn NetworkDriver,
+    is_dry_run: bool,
+) -> Result<(), Box<dyn Error>> {
+    // CHECK command validates that the configuration is still valid
+
+    let config = config.ok_or("Missing CNI configuration on stdin")?;
+
+    // Validate CNI version
+    if config.cniVersion != "1.0.0" {
+        return Err(format!("Unsupported CNI version: {}", config.cniVersion).into());
+    }
+
+    // Validate required environment variables
+    let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
+    let _container_id = env::var("CNI_CONTAINERID").map_err(|_| "CNI_CONTAINERID not set")?;
+    let ifname = env::var("CNI_IFNAME").map_err(|_| "CNI_IFNAME not set")?;
+
+    let netns_path = Path::new(&netns_str);
+
+    // Check that the network namespace exists (skip in dry-run mode)
+    if !is_dry_run && !netns_path.exists() {
+        return Err(format!("Network namespace does not exist: {}", netns_str).into());
+    }
+
+    // Determine master interface to validate it exists
+    let master_interface = if let Some(cli_iface) = &args.interface {
+        cli_iface.clone()
+    } else if let Some(conf_master) = &config.master {
+        conf_master.clone()
+    } else {
+        driver.detect_upstream_interface()?
+    };
+
+    // Verify master interface exists
+    driver.check_interface(&master_interface)?;
+
+    // Check that the interface exists in the specified netns
+    if !driver.interface_exists_in_netns(netns_path, &ifname)? {
+        return Err(format!(
+            "Interface '{}' not found in network namespace '{}'",
+            ifname, netns_str
+        )
+        .into());
+    }
+
+    // All checks passed - return success (empty response)
     Ok(())
 }
 

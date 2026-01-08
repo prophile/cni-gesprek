@@ -255,6 +255,87 @@ impl NetworkDriver for ScriptDriver {
 
         Ok(())
     }
+
+    fn delete_interface_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let netns_str = netns_path.to_str().ok_or("Invalid UTF-8 in netns path")?;
+
+        let ns_args = |cmd: &[&str]| -> Vec<String> {
+            let mut args = vec![
+                format!("--net={}", netns_str),
+                "-F".to_string(),
+                "--".to_string(),
+            ];
+            args.extend(cmd.iter().map(|s| s.to_string()));
+            args
+        };
+
+        // Try to delete the interface
+        let args = ns_args(&["ip", "link", "delete", "dev", ifname]);
+        match Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Check if the error is because the interface doesn't exist
+                let error_str = e.to_string().to_lowercase();
+                if error_str.contains("cannot find device")
+                    || error_str.contains("no such device")
+                    || error_str.contains("link not found")
+                {
+                    // Interface doesn't exist - this is success for DEL (idempotent)
+                    Ok(())
+                } else {
+                    // Some other error occurred
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    fn interface_exists_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        let netns_str = netns_path.to_str().ok_or("Invalid UTF-8 in netns path")?;
+
+        let ns_args = |cmd: &[&str]| -> Vec<String> {
+            let mut args = vec![
+                format!("--net={}", netns_str),
+                "-F".to_string(),
+                "--".to_string(),
+            ];
+            args.extend(cmd.iter().map(|s| s.to_string()));
+            args
+        };
+
+        // Try to show the interface
+        let args = ns_args(&["ip", "link", "show", "dev", ifname]);
+        match Self::run_cmd(
+            "nsenter",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        ) {
+            Ok(_) => Ok(true), // Interface exists
+            Err(e) => {
+                // Check if the error is because the interface doesn't exist
+                let error_str = e.to_string().to_lowercase();
+                if error_str.contains("cannot find device")
+                    || error_str.contains("no such device")
+                    || error_str.contains("link not found")
+                {
+                    Ok(false) // Interface doesn't exist
+                } else {
+                    // Some other error occurred - propagate it
+                    Err(e)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

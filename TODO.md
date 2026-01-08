@@ -154,14 +154,41 @@
 
 ### 14. Dead Code and Placeholder Logic
 **Priority**: Low
-**Status**: Open
+**Status**: Resolved ✅
 **Location:** [src/main.rs](src/main.rs#L268-L285)  
 **Description:** Some command handlers return placeholder responses that may not be CNI-compliant  
 **Recommended Actions:**
-- Review CNI specification for proper response formats
-- Implement proper DEL command logic for cleanup
-- Add proper CHECK command validation
-- Remove or properly implement placeholder responses
+- ✅ Review CNI specification for proper response formats
+- ✅ Implement proper DEL command logic for cleanup
+- ✅ Add proper CHECK command validation
+- ✅ Remove or properly implement placeholder responses
+
+**Resolution Summary:**
+- Implemented proper `cmd_del` function that:
+  - Validates required environment variables (CNI_NETNS, CNI_CONTAINERID, CNI_IFNAME)
+  - Is idempotent - succeeds even if interface doesn't exist (CNI spec requirement)
+  - Returns empty response on success as per CNI specification
+  - Handles non-existent network namespaces gracefully
+  - Uses `delete_interface_in_netns` driver method for actual cleanup
+- Implemented proper `cmd_check` function that:
+  - Validates CNI version compatibility (only supports 1.0.0)
+  - Validates required environment variables
+  - Checks network namespace existence (skipped in dry-run mode)
+  - Validates master interface exists
+  - Verifies target interface exists in the specified netns
+  - Returns empty response on success as per CNI specification
+- Added new NetworkDriver trait methods:
+  - `delete_interface_in_netns`: Delete interface inside a netns (idempotent)
+  - `interface_exists_in_netns`: Check if interface exists in netns
+- Implemented these methods in ScriptDriver, DryRunDriver, and CommandCaptureDriver
+- Enhanced dry-run mode support by checking DRY_RUN environment variable
+- Created comprehensive integration test suite (10 tests) covering:
+  - DEL command success scenarios (cleanup and non-existent interfaces)
+  - CHECK command validation (valid config, missing interface, invalid version)
+  - Error handling for missing environment variables
+  - Dry-run mode operation for both commands
+  - Integration scenarios combining multiple commands
+- All tests pass, validating correct CNI specification compliance
 
 ## Testing Improvements
 

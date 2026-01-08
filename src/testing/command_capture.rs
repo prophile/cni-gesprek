@@ -232,6 +232,33 @@ impl NetworkDriver for CommandCaptureDriver {
 
         Ok(())
     }
+
+    fn delete_interface_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        self.capture_nsenter_command(
+            netns_path,
+            &["ip", "link", "delete", "dev", ifname],
+            &format!("Delete interface {} in netns", ifname),
+        );
+        Ok(())
+    }
+
+    fn interface_exists_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<bool, Box<dyn Error>> {
+        self.capture_nsenter_command(
+            netns_path,
+            &["ip", "link", "show", "dev", ifname],
+            &format!("Check if interface {} exists in netns", ifname),
+        );
+        // For testing purposes, always return true
+        Ok(true)
+    }
 }
 
 /// Helper functions for test assertions

@@ -44,4 +44,19 @@ pub trait NetworkDriver {
         ip_cidr: &str,
         gateway: Option<&str>,
     ) -> Result<(), Box<dyn Error>>;
+
+    /// Deletes a network interface inside a specific network namespace.
+    /// Should be idempotent - succeed even if interface doesn't exist.
+    fn delete_interface_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<(), Box<dyn Error>>;
+
+    /// Checks if a network interface exists inside a specific network namespace.
+    fn interface_exists_in_netns(
+        &self,
+        netns_path: &Path,
+        ifname: &str,
+    ) -> Result<bool, Box<dyn Error>>;
 }
