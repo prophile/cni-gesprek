@@ -24,10 +24,6 @@ regex = "1.10"
 name = "cni-gesprek"
 path = "src/main.rs"
 
-[[bin]]
-name = "test-runner"
-path = "src/bin/test_runner.rs"
-
 [dev-dependencies]
 tokio = { version = "1.0", features = ["full"] }
 assert_cmd = "2.0"
