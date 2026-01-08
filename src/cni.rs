@@ -107,23 +107,6 @@ impl CniContext {
             .into()
         })
     }
-
-    /// Check if this is a command that requires configuration
-    pub fn needs_config(&self) -> bool {
-        ["ADD", "DEL", "CHECK", "STATUS"].contains(&self.environment.command.as_str())
-    }
-
-    /// Validate that the configuration is available if needed
-    pub fn validate_config(&self) -> CniResult<()> {
-        if self.needs_config() && self.config.is_none() {
-            return Err(ConfigError::MissingConfig {
-                command: self.environment.command.clone(),
-                reason: "Configuration required for this CNI command but none provided".to_string(),
-            }
-            .into());
-        }
-        Ok(())
-    }
 }
 
 impl TryFrom<&CniEnvironment> for CniContext {
@@ -144,81 +127,67 @@ impl TryFrom<&CniEnvironment> for CniContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::environment::MockEnvironmentProvider;
 
     #[test]
     fn test_cni_context_creation() {
-        let mut env_provider = MockEnvironmentProvider::new();
-        env_provider
-            .set("CNI_COMMAND", "VERSION")
-            .set("CNI_CONTAINERID", "test-container")
-            .set("CNI_NETNS", "/var/run/netns/test")
-            .set("CNI_IFNAME", "eth0");
-
-        let context = CniContext::load(&env_provider, false).unwrap();
+        let context = CniContext {
+            environment: CniEnvironment {
+                command: "VERSION".to_string(),
+                container_id: Some("test-container".to_string()),
+                netns: Some("/var/run/netns/test".to_string()),
+                ifname: Some("eth0".to_string()),
+            },
+            config: None,
+            is_dry_run: false,
+        };
 
         assert_eq!(context.environment.command, "VERSION");
         assert!(!context.is_dry_run);
-        assert!(context.config.is_none()); // VERSION command doesn't need config
+        assert!(context.config.is_none());
     }
 
     #[test]
     fn test_cni_context_dry_run() {
-        let mut env_provider = MockEnvironmentProvider::new();
-        env_provider
-            .set("CNI_COMMAND", "ADD")
-            .set("CNI_CONTAINERID", "test-container")
-            .set("CNI_NETNS", "/var/run/netns/test")
-            .set("CNI_IFNAME", "eth0")
-            .set("DRY_RUN", "true");
-
-        let context = CniContext::load(&env_provider, false).unwrap();
+        let context = CniContext {
+            environment: CniEnvironment {
+                command: "ADD".to_string(),
+                container_id: Some("test-container".to_string()),
+                netns: Some("/var/run/netns/test".to_string()),
+                ifname: Some("eth0".to_string()),
+            },
+            config: None,
+            is_dry_run: true,
+        };
 
         assert!(context.is_dry_run);
     }
 
     #[test]
-    fn test_config_validation() {
-        let mut env_provider = MockEnvironmentProvider::new();
-        env_provider
-            .set("CNI_COMMAND", "VERSION")
-            .set("CNI_CONTAINERID", "test-container")
-            .set("CNI_NETNS", "/var/run/netns/test")
-            .set("CNI_IFNAME", "eth0");
-
-        let context = CniContext::load(&env_provider, false).unwrap();
-
-        // VERSION command doesn't need config, so validation should pass
-        assert!(context.validate_config().is_ok());
-        assert!(!context.needs_config());
-    }
-
-    #[test]
-    fn test_needs_config_detection() {
-        assert!(CniContext {
+    fn test_cni_context_commands() {
+        // Test ADD command context
+        let add_context = CniContext {
             environment: CniEnvironment {
                 command: "ADD".to_string(),
                 container_id: Some("test".to_string()),
                 netns: Some("/test".to_string()),
                 ifname: Some("eth0".to_string()),
-                path: None,
             },
             config: None,
-            is_dry_run: false
-        }
-        .needs_config());
+            is_dry_run: false,
+        };
+        assert_eq!(add_context.environment.command, "ADD");
 
-        assert!(!CniContext {
+        // Test VERSION command context
+        let version_context = CniContext {
             environment: CniEnvironment {
                 command: "VERSION".to_string(),
                 container_id: Some("test".to_string()),
                 netns: Some("/test".to_string()),
                 ifname: Some("eth0".to_string()),
-                path: None,
             },
             config: None,
-            is_dry_run: false
-        }
-        .needs_config());
+            is_dry_run: false,
+        };
+        assert_eq!(version_context.environment.command, "VERSION");
     }
 }

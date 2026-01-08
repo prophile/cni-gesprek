@@ -16,13 +16,6 @@ pub struct NetworkConfiguration {
     pub temporary_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct InterfaceValidationResult {
-    pub exists: bool,
-    pub in_correct_netns: bool,
-    pub has_expected_config: bool,
-}
-
 /// CNI operation result structures
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CniResult {
@@ -135,9 +128,9 @@ impl CniOrchestrator {
         }
 
         Ok(vec![
-            ValidationStep::CheckNetnsExists,
-            ValidationStep::CheckMasterInterface(master_interface.to_string()),
-            ValidationStep::CheckTargetInterface(interface_name.to_string()),
+            ValidationStep::NetnsExists,
+            ValidationStep::MasterInterface(master_interface.to_string()),
+            ValidationStep::TargetInterface(interface_name.to_string()),
         ])
     }
 
@@ -169,37 +162,14 @@ impl CniOrchestrator {
     pub fn create_version_response() -> &'static str {
         r#"{"cniVersion": "1.0.0", "supportedVersions": ["1.0.0"]}"#
     }
-
-    /// Validate interface configuration matches expected state
-    pub fn validate_interface_state(
-        _config: &CniConfig,
-        _interface_name: &str,
-        _actual_state: &InterfaceState,
-    ) -> InterfaceValidationResult {
-        // Business logic for validating interface state would go here
-        // For now, return a simple validation
-        InterfaceValidationResult {
-            exists: true,
-            in_correct_netns: true,
-            has_expected_config: true,
-        }
-    }
 }
 
 /// Validation steps that should be performed during CHECK operation
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationStep {
-    CheckNetnsExists,
-    CheckMasterInterface(String),
-    CheckTargetInterface(String),
-}
-
-/// Interface state information for validation
-#[derive(Debug, Clone)]
-pub struct InterfaceState {
-    pub exists: bool,
-    pub ip_addresses: Vec<String>,
-    pub is_up: bool,
+    NetnsExists,
+    MasterInterface(String),
+    TargetInterface(String),
 }
 
 #[cfg(test)]
@@ -279,14 +249,14 @@ mod tests {
         let steps = CniOrchestrator::plan_check_operation(&config, "veth0", "eth0").unwrap();
 
         assert_eq!(steps.len(), 3);
-        assert_eq!(steps[0], ValidationStep::CheckNetnsExists);
+        assert_eq!(steps[0], ValidationStep::NetnsExists);
         assert_eq!(
             steps[1],
-            ValidationStep::CheckMasterInterface("eth0".to_string())
+            ValidationStep::MasterInterface("eth0".to_string())
         );
         assert_eq!(
             steps[2],
-            ValidationStep::CheckTargetInterface("veth0".to_string())
+            ValidationStep::TargetInterface("veth0".to_string())
         );
     }
 

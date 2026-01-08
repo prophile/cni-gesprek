@@ -60,7 +60,6 @@ fn main() -> CniResult<()> {
     let args = command_dispatcher::Args {
         interface: cli_args.interface,
         pod_cidr: cli_args.pod_cidr,
-        dry_run: cli_args.dry_run,
     };
 
     // Dispatch command to appropriate handler
@@ -275,22 +274,18 @@ mod tests {
         let args = Args {
             interface: Some("eth1".to_string()),
             pod_cidr: Some("2001:db8:1::/64".to_string()),
-            dry_run: true,
         };
 
         assert_eq!(args.interface, Some("eth1".to_string()));
         assert_eq!(args.pod_cidr, Some("2001:db8:1::/64".to_string()));
-        assert!(args.dry_run);
 
         // Test with minimal arguments
         let args = Args {
             interface: None,
             pod_cidr: None,
-            dry_run: false,
         };
         assert_eq!(args.interface, None);
         assert_eq!(args.pod_cidr, None);
-        assert!(!args.dry_run);
     }
 
     #[test]

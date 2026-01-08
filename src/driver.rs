@@ -19,10 +19,6 @@ impl Ipv6Subnet {
             prefix_length,
         })
     }
-
-    pub fn to_cidr_string(&self) -> String {
-        format!("{}/{}", self.address, self.prefix_length)
-    }
 }
 
 /// High-level network discovery and introspection operations.
@@ -355,7 +351,6 @@ mod trait_abstraction_tests {
         let subnet = Ipv6Subnet::new(addr, 64).unwrap();
         assert_eq!(subnet.address, addr);
         assert_eq!(subnet.prefix_length, 64);
-        assert_eq!(subnet.to_cidr_string(), "2001:db8::1/64");
 
         // Invalid subnet (prefix too large)
         let invalid_subnet = Ipv6Subnet::new(addr, 129);
