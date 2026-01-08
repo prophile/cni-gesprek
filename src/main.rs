@@ -416,7 +416,9 @@ mod tests {
         #[test]
         fn test_test_scenario_building() {
             let (config, env) = TestScenarios::basic_add();
-            let config_json = config.build_json_string();
+            let config_json = config
+                .build_json_string()
+                .expect("Failed to serialize config");
             let env_vars = env.build();
 
             assert!(config_json.contains("cniVersion"));

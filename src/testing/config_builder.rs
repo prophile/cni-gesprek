@@ -70,8 +70,8 @@ impl CniConfigBuilder {
         self.config
     }
 
-    pub fn build_json_string(self) -> String {
-        serde_json::to_string(&self.config).unwrap()
+    pub fn build_json_string(self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self.config)
     }
 }
 

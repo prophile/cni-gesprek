@@ -143,7 +143,20 @@ impl CniTestUtils {
 
     /// Generate a unique network namespace path for testing
     pub fn unique_netns_path(prefix: &str) -> String {
-        format!("/proc/{}/ns/net", Self::unique_container_id(prefix))
+        // Generate a pseudo-PID that looks realistic for testing
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            % 1000000; // Keep it as a reasonable PID range
+
+        // Use a valid format that passes validation
+        if prefix == "self" {
+            "/proc/self/ns/net".to_string()
+        } else {
+            format!("/proc/{}/ns/net", timestamp)
+        }
     }
 }
 

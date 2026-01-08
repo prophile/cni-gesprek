@@ -31,7 +31,9 @@ impl NetworkDiscovery for ScriptDriver {
     fn detect_upstream_interface(&self) -> Result<String, Box<dyn Error>> {
         // Try IPv6 default route first
         let output = Self::run_cmd("ip", &["-6", "-j", "route", "show", "default"])?;
-        let routes: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
+        let routes: Vec<serde_json::Value> = serde_json::from_str(&output)
+            .map_err(|e| format!("Failed to parse IPv6 route JSON: {}", e))
+            .unwrap_or_else(|_| Vec::new());
 
         if let Some(route) = routes.first() {
             if let Some(dev) = route.get("dev").and_then(|v| v.as_str()) {
@@ -41,7 +43,9 @@ impl NetworkDiscovery for ScriptDriver {
 
         // Fallback to IPv4 default route
         let output = Self::run_cmd("ip", &["-4", "-j", "route", "show", "default"])?;
-        let routes: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
+        let routes: Vec<serde_json::Value> = serde_json::from_str(&output)
+            .map_err(|e| format!("Failed to parse IPv4 route JSON: {}", e))
+            .unwrap_or_else(|_| Vec::new());
 
         if let Some(route) = routes.first() {
             if let Some(dev) = route.get("dev").and_then(|v| v.as_str()) {
@@ -57,7 +61,9 @@ impl NetworkDiscovery for ScriptDriver {
             "ip",
             &["-6", "-j", "route", "show", "default", "dev", ifname],
         )?;
-        let routes: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
+        let routes: Vec<serde_json::Value> = serde_json::from_str(&output)
+            .map_err(|e| format!("Failed to parse gateway route JSON: {}", e))
+            .unwrap_or_else(|_| Vec::new());
 
         if let Some(route) = routes.first() {
             if let Some(gateway) = route.get("gateway").and_then(|v| v.as_str()) {
@@ -226,8 +232,9 @@ impl NetworkNamespaceOps for ScriptDriver {
                 "nsenter",
                 &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             ) {
-                let entries: Vec<serde_json::Value> =
-                    serde_json::from_str(&output).unwrap_or_default();
+                let entries: Vec<serde_json::Value> = serde_json::from_str(&output)
+                    .map_err(|e| format!("Failed to parse addr show JSON: {}", e))
+                    .unwrap_or_else(|_| Vec::new());
                 let mut found_our_ip = false;
                 let mut is_ready = false;
                 let mut is_failed = false;

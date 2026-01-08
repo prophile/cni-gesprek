@@ -141,7 +141,10 @@ impl TestRunner {
         dry_run: bool,
         timeout_secs: Option<u64>,
     ) -> Result<TestResult, Box<dyn Error>> {
-        let config_json = config.clone().build_json_string();
+        let config_json = config
+            .clone()
+            .build_json_string()
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
         let env_vars = env.clone().build();
 
         // Validate configuration before running
@@ -234,7 +237,10 @@ impl TestRunner {
         env: &CniEnvBuilder,
         dry_run: bool,
     ) -> Result<TestResult, Box<dyn Error>> {
-        let config_json = config.clone().build_json_string();
+        let config_json = config
+            .clone()
+            .build_json_string()
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
         let env_vars = env.clone().build();
 
         let mut cmd = Command::new(&self.binary_path);
