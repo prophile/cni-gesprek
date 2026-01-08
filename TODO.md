@@ -34,15 +34,36 @@
 - ✅ All 6 IP generation tests pass, validating safety improvements and proper subnet bounds checking
 - ✅ Created safety demonstration showing proper CIDR validation, error handling, and address generation within bounds
 
-### 3. Error Handling Issues
+### 3a. Error Handling Issues: JSON error propagation
 **Priority**: High
 **Status**: Open
 **Location:** [src/main.rs](src/main.rs#L140)  
-**Description:** Silent failures in stdin parsing and missing validation for critical environment variables  
+**Description:** Improve error handling for JSON parsing
 **Recommended Actions:**
 - Replace `.ok()` with proper error propagation for JSON parsing
+
+### 3b. Error Handling Issues: Environment Variables
+**Priority**: High
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L140)  
+**Description:** Environment variables like `CNI_NETNS`, `CNI_IFNAME` are used without validation
+**Recommended Actions:**
 - Add validation for `CNI_NETNS`, `CNI_IFNAME` before use
+
+### 3c. Error Handling Issues: Structured Errors
+**Priority**: High
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L140)  
+**Description:** Lack of structured error types makes debugging difficult
+**Recommended Actions:**
 - Create structured error types for better error context
+
+### 3d. Error Handling Issues: Logging
+**Priority**: High
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L140)  
+**Description:** Lack of logging for debugging failed configurations 
+**Recommended Actions:**
 - Add logging for debugging failed configurations
 
 ## Security & Reliability Concerns
