@@ -68,7 +68,7 @@ jobs:
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }}
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: cni-gesprek-${{ matrix.target }}
         path: target/${{ matrix.target }}/release/cni-gesprek
