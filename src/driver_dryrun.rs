@@ -1,4 +1,4 @@
-use crate::driver::{Ipv6Subnet, NetworkDriver};
+use crate::driver::{InterfaceLifecycle, Ipv6Subnet, NetworkDiscovery, NetworkNamespaceOps};
 use std::error::Error;
 use std::net::Ipv6Addr;
 use std::path::Path;
@@ -11,7 +11,7 @@ impl DryRunDriver {
     }
 }
 
-impl NetworkDriver for DryRunDriver {
+impl NetworkDiscovery for DryRunDriver {
     fn detect_upstream_interface(&self) -> Result<String, Box<dyn Error>> {
         self.log("Inferring default interface... (Simulated: eth0)");
         Ok("eth0".to_string())
@@ -38,7 +38,9 @@ impl NetworkDriver for DryRunDriver {
         self.log(&format!("Checking if interface {} exists...", ifname));
         Ok(())
     }
+}
 
+impl InterfaceLifecycle for DryRunDriver {
     fn create_ipvlan(
         &self,
         parent: &str,
@@ -56,7 +58,9 @@ impl NetworkDriver for DryRunDriver {
         self.log(&format!("ip link delete {}", ifname));
         Ok(())
     }
+}
 
+impl NetworkNamespaceOps for DryRunDriver {
     fn set_netns(&self, ifname: &str, netns_path: &Path) -> Result<(), Box<dyn Error>> {
         self.log(&format!(
             "ip link set dev {} netns {:?}",

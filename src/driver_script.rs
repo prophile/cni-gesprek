@@ -1,4 +1,4 @@
-use crate::driver::{Ipv6Subnet, NetworkDriver};
+use crate::driver::{InterfaceLifecycle, Ipv6Subnet, NetworkDiscovery, NetworkNamespaceOps};
 use std::error::Error;
 use std::net::Ipv6Addr;
 use std::path::Path;
@@ -27,7 +27,7 @@ impl ScriptDriver {
     }
 }
 
-impl NetworkDriver for ScriptDriver {
+impl NetworkDiscovery for ScriptDriver {
     fn detect_upstream_interface(&self) -> Result<String, Box<dyn Error>> {
         // Try IPv6 default route first
         let output = Self::run_cmd("ip", &["-6", "-j", "route", "show", "default"])?;
@@ -100,7 +100,9 @@ impl NetworkDriver for ScriptDriver {
         Self::run_cmd("ip", &["link", "show", "dev", ifname])?;
         Ok(())
     }
+}
 
+impl InterfaceLifecycle for ScriptDriver {
     fn create_ipvlan(
         &self,
         parent: &str,
@@ -122,7 +124,9 @@ impl NetworkDriver for ScriptDriver {
         Self::run_cmd("ip", &["link", "delete", ifname])?;
         Ok(())
     }
+}
 
+impl NetworkNamespaceOps for ScriptDriver {
     fn set_netns(&self, ifname: &str, netns_path: &Path) -> Result<(), Box<dyn Error>> {
         let netns_str = netns_path.to_str().ok_or("Invalid UTF-8 in netns path")?;
         Self::run_cmd("ip", &["link", "set", "dev", ifname, "netns", netns_str])?;

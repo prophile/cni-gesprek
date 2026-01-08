@@ -1,4 +1,4 @@
-use crate::driver::{Ipv6Subnet, NetworkDriver};
+use crate::driver::{InterfaceLifecycle, Ipv6Subnet, NetworkDiscovery, NetworkNamespaceOps};
 use std::cell::RefCell;
 use std::error::Error;
 use std::net::Ipv6Addr;
@@ -75,7 +75,7 @@ impl Default for CommandCaptureDriver {
     }
 }
 
-impl NetworkDriver for CommandCaptureDriver {
+impl NetworkDiscovery for CommandCaptureDriver {
     fn detect_upstream_interface(&self) -> Result<String, Box<dyn Error>> {
         self.capture_command(
             "ip",
@@ -115,7 +115,9 @@ impl NetworkDriver for CommandCaptureDriver {
         );
         Ok(())
     }
+}
 
+impl InterfaceLifecycle for CommandCaptureDriver {
     fn create_ipvlan(
         &self,
         parent: &str,
@@ -144,7 +146,9 @@ impl NetworkDriver for CommandCaptureDriver {
         );
         Ok(())
     }
+}
 
+impl NetworkNamespaceOps for CommandCaptureDriver {
     fn set_netns(&self, ifname: &str, netns_path: &Path) -> Result<(), Box<dyn Error>> {
         self.capture_command(
             "ip",
