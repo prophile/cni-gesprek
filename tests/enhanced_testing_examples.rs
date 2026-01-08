@@ -97,8 +97,118 @@ mod enhanced_testing_examples {
         // Validate DNS configuration is preserved if we got output
         if !result.stdout.is_empty() {
             let json = CniTestUtils::validate_json_structure(&result.stdout, &["dns"]).unwrap();
-            assert!(json["dns"]["nameservers"].as_array().unwrap().len() == 2);
-            assert_eq!(json["dns"]["domain"], "example.com");
+
+            // Detailed DNS validation
+            let dns = &json["dns"];
+
+            // Verify nameservers
+            let nameservers = dns["nameservers"].as_array().unwrap();
+            assert_eq!(nameservers.len(), 2, "Expected 2 nameservers");
+            assert!(
+                nameservers.contains(&serde_json::json!("2001:db8::53")),
+                "Expected nameserver 2001:db8::53"
+            );
+            assert!(
+                nameservers.contains(&serde_json::json!("2001:db8::54")),
+                "Expected nameserver 2001:db8::54"
+            );
+
+            // Verify domain
+            assert_eq!(dns["domain"], "example.com", "Expected domain example.com");
+
+            // Verify search domains if present
+            if let Some(search) = dns.get("search") {
+                let search_domains = search.as_array().unwrap();
+                assert!(
+                    !search_domains.is_empty(),
+                    "Search domains should not be empty if present"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_enhanced_dns_validation() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with multiple DNS configurations
+        let config_json = CniTestUtils::config_with_dns(
+            "dns-validation-test",
+            "eth0",
+            "2001:db8:dns::/64",
+            &["2001:db8::1", "2001:db8::2", "fe80::1"],
+            Some("test.local"),
+        );
+
+        let config = match CniConfigBuilder::from_json_string(&config_json) {
+            Ok(config) => config,
+            Err(e) => panic!("Failed to parse DNS config: {}", e),
+        };
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("dns-val"))
+            .with_netns(&CniTestUtils::unique_netns_path("dns-val"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        if !result.stdout.is_empty() {
+            let json = CniTestUtils::validate_json_structure(&result.stdout, &["dns"]).unwrap();
+
+            // Validate IPv6 nameserver format
+            let nameservers = json["dns"]["nameservers"].as_array().unwrap();
+            for ns in nameservers {
+                let ns_str = ns.as_str().unwrap();
+                // Basic IPv6 format validation
+                assert!(
+                    ns_str.contains(':'),
+                    "Nameserver should be IPv6 format: {}",
+                    ns_str
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_dns_without_domain() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test DNS configuration without domain
+        let config_json = CniTestUtils::config_with_dns(
+            "dns-no-domain",
+            "eth0",
+            "2001:db8:nodomain::/64",
+            &["2001:db8::53"],
+            None, // No domain
+        );
+
+        let config = CniConfigBuilder::from_json_string(&config_json).unwrap();
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("dns-nodomain"))
+            .with_netns(&CniTestUtils::unique_netns_path("dns-nodomain"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        if !result.stdout.is_empty() {
+            let json = CniTestUtils::validate_json_structure(&result.stdout, &["dns"]).unwrap();
+
+            // Should have nameservers but no domain field (or null domain)
+            assert!(
+                json["dns"]["nameservers"].is_array(),
+                "Should have nameservers array"
+            );
+
+            // Domain field should be absent or null
+            let domain_field = json["dns"].get("domain");
+            if let Some(domain) = domain_field {
+                assert!(
+                    domain.is_null() || domain.as_str().unwrap().is_empty(),
+                    "Domain should be null or empty when not specified"
+                );
+            }
         }
     }
 
@@ -133,27 +243,60 @@ mod enhanced_testing_examples {
             println!("  {}: {} {:?}", i, cmd.program, cmd.args);
         }
 
-        // Validate command sequence - be more flexible about what commands we expect
-        let _validator = CommandSequenceValidator::new();
+        // Validate command sequence - verify essential commands are present
+        let mut validator = CommandSequenceValidator::new();
 
-        // Instead of expecting exact sequence, let's just verify we captured some commands
-        if !result.captured_commands.is_empty() {
-            println!("Commands were captured successfully");
-        } else {
-            // If no commands were captured, maybe the binary doesn't output in the expected format
-            // Let's just pass this test for now and focus on the actual functionality
-            println!("No commands captured - possibly different output format");
+        // Define expected command sequences for CNI ADD operation
+        validator.expect_sequence(vec!["ip link show"]); // Interface existence check
+        validator.expect_sequence(vec!["ip link add"]); // Interface creation
+        validator.expect_sequence(vec!["nsenter"]); // Network namespace operations
+
+        // Validate that essential commands were captured
+        if result.captured_commands.is_empty() {
+            panic!("No commands captured - dry run mode should produce command output");
         }
 
-        // For now, let's not fail on command sequence validation
-        // validator.expect_sequence(vec!["ip link show", "ip link add", "ip link set"]);
-        // let validation_result = validator.validate(&result.captured_commands);
-        // if let Err(errors) = validation_result {
-        //     for error in errors {
-        //         println!("Sequence validation error: {}", error);
-        //     }
-        //     panic!("Command sequence validation failed");
-        // }
+        // Verify the command sequence validation
+        match validator.validate(&result.captured_commands) {
+            Ok(()) => {
+                println!("Command sequence validation passed successfully");
+            }
+            Err(errors) => {
+                println!(
+                    "Command sequence validation failed with {} errors:",
+                    errors.len()
+                );
+                for error in &errors {
+                    println!("  - {}", error);
+                }
+
+                // Instead of panicking, we'll add the errors to the test result for debugging
+                // but allow some flexibility in command ordering
+                if errors.len() > 2 {
+                    // Only fail if we're missing many expected commands
+                    panic!("Too many missing commands: {}", errors.join(", "));
+                }
+            }
+        }
+
+        // Additional validation: ensure critical network setup commands are present
+        let has_link_creation = result
+            .captured_commands
+            .iter()
+            .any(|cmd| cmd.program == "ip" && cmd.args.contains(&"add".to_string()));
+        let has_nsenter_usage = result
+            .captured_commands
+            .iter()
+            .any(|cmd| cmd.program == "nsenter");
+
+        assert!(
+            has_link_creation,
+            "Expected to find network interface creation command"
+        );
+        assert!(
+            has_nsenter_usage,
+            "Expected to find network namespace operations"
+        );
     }
 
     #[test]
@@ -211,6 +354,176 @@ mod enhanced_testing_examples {
     }
 
     #[test]
+    fn test_edge_case_empty_configuration() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with minimal configuration
+        let config = CniConfigBuilder::new()
+            .with_name("") // Empty name
+            .with_cni_version("1.0.0");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("empty-config"))
+            .with_netns(&CniTestUtils::unique_netns_path("empty-config"))
+            .with_ifname(""); // Empty interface name
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Should handle empty configuration gracefully (may fail validation)
+        println!(
+            "Empty config test completed with exit code: {:?}",
+            result.exit_code
+        );
+    }
+
+    #[test]
+    fn test_edge_case_very_long_interface_name() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with very long interface name (IFNAMSIZ limit is typically 16 characters)
+        let long_name = "very-long-interface-name-that-exceeds-limits";
+
+        let config = CniConfigBuilder::new()
+            .with_name("long-name-test")
+            .with_master(long_name)
+            .with_pod_cidr("2001:db8::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("long-name"))
+            .with_netns(&CniTestUtils::unique_netns_path("long-name"))
+            .with_ifname("eth0");
+
+        let _result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Should handle long interface names appropriately (truncate or error)
+        println!("Long interface name test completed");
+    }
+
+    #[test]
+    fn test_edge_case_unusual_cidr_prefixes() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with unusual but valid CIDR prefix lengths
+        let test_cidrs = vec![
+            "2001:db8::/96",  // Longer prefix
+            "2001:db8::/48",  // Shorter prefix
+            "2001:db8::/128", // Single host
+        ];
+
+        for cidr in test_cidrs {
+            let config = CniConfigBuilder::new()
+                .with_name(&format!(
+                    "cidr-test-{}",
+                    cidr.replace("/", "-").replace(":", "_")
+                ))
+                .with_master("eth0")
+                .with_pod_cidr(cidr);
+
+            let env = CniEnvBuilder::new()
+                .with_command("ADD")
+                .with_container_id(&CniTestUtils::unique_container_id("cidr-edge"))
+                .with_netns(&CniTestUtils::unique_netns_path("cidr-edge"))
+                .with_ifname("eth0");
+
+            let result = runner.run_cni(&config, &env, true).unwrap();
+
+            // Should handle various CIDR lengths appropriately
+            println!(
+                "CIDR {} test completed with exit code: {:?}",
+                cidr, result.exit_code
+            );
+        }
+    }
+
+    #[test]
+    fn test_edge_case_special_characters_in_names() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with special characters that might cause issues
+        let special_names = vec![
+            "test-with-dashes",
+            "test_with_underscores",
+            "test.with.dots",
+        ];
+
+        for name in special_names {
+            let config = CniConfigBuilder::new()
+                .with_name(name)
+                .with_master("eth0")
+                .with_pod_cidr("2001:db8::/64");
+
+            let env = CniEnvBuilder::new()
+                .with_command("ADD")
+                .with_container_id(&CniTestUtils::unique_container_id("special-chars"))
+                .with_netns(&CniTestUtils::unique_netns_path("special-chars"))
+                .with_ifname("eth0");
+
+            let _result = runner.run_cni(&config, &env, true).unwrap();
+
+            // Should handle special characters in names appropriately
+            println!("Special character name '{}' test completed", name);
+        }
+    }
+
+    #[test]
+    fn test_edge_case_ipv6_address_formats() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test different valid IPv6 address formats in CIDR
+        let ipv6_formats = vec![
+            "2001:db8:0:0:0:0:0:0/64",  // Full format
+            "2001:db8::/64",            // Compressed
+            "2001:0db8:0000:0000::/64", // Mixed compression
+            "::1/128",                  // Loopback
+        ];
+
+        for cidr in ipv6_formats {
+            let config = CniConfigBuilder::new()
+                .with_name("ipv6-format-test")
+                .with_master("eth0")
+                .with_pod_cidr(cidr);
+
+            let env = CniEnvBuilder::new()
+                .with_command("ADD")
+                .with_container_id(&CniTestUtils::unique_container_id("ipv6-format"))
+                .with_netns(&CniTestUtils::unique_netns_path("ipv6-format"))
+                .with_ifname("eth0");
+
+            let _result = runner.run_cni(&config, &env, true).unwrap();
+
+            // Should handle different IPv6 formats correctly
+            println!("IPv6 format '{}' test completed", cidr);
+        }
+    }
+
+    #[test]
+    fn test_edge_case_unicode_in_configuration() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with Unicode characters in configuration
+        let config = CniConfigBuilder::new()
+            .with_name("测试-网络") // Chinese characters
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("unicode"))
+            .with_netns(&CniTestUtils::unique_netns_path("unicode"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Should handle Unicode characters appropriately (may restrict or allow)
+        println!(
+            "Unicode test completed with exit code: {:?}",
+            result.exit_code
+        );
+    }
+
+    #[test]
     fn test_concurrent_test_isolation() {
         let isolation_manager = Arc::new(TestIsolationManager::new());
 
@@ -242,6 +555,109 @@ mod enhanced_testing_examples {
     }
 
     #[test]
+    fn test_error_handling_invalid_config() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with invalid JSON configuration
+        let invalid_config_json = r#"{"cniVersion": "1.0.0", "name": "", "type": "invalid-type"}"#;
+        let config = CniConfigBuilder::from_json_string(invalid_config_json).unwrap();
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("error-test"))
+            .with_netns(&CniTestUtils::unique_netns_path("error-test"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Debug output
+        if !result.stderr.is_empty() {
+            println!("Error test stderr: {}", result.stderr);
+        }
+
+        // Should handle invalid configuration gracefully
+        // Note: Some errors might be caught at validation level
+        println!(
+            "Invalid config test completed with exit code: {:?}",
+            result.exit_code
+        );
+    }
+
+    #[test]
+    fn test_error_handling_missing_interface() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with non-existent interface
+        let config = CniConfigBuilder::new()
+            .with_name("error-test")
+            .with_master("nonexistent-interface")
+            .with_pod_cidr("2001:db8::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("missing-if"))
+            .with_netns(&CniTestUtils::unique_netns_path("missing-if"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // In dry run mode, this might not fail, but should produce diagnostic output
+        println!(
+            "Missing interface test - captured {} commands",
+            runner.parse_dry_run_commands(&result.stderr).len()
+        );
+    }
+
+    #[test]
+    fn test_error_handling_invalid_netns() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("error-test-netns")
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8::/64");
+
+        // Test with invalid network namespace path
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("bad-netns"))
+            .with_netns("invalid/path/to/netns") // Invalid format
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Should handle invalid netns gracefully in dry run mode
+        println!(
+            "Invalid netns test completed with exit code: {:?}",
+            result.exit_code
+        );
+    }
+
+    #[test]
+    fn test_error_handling_malformed_cidr() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        // Test with malformed CIDR
+        let config = CniConfigBuilder::new()
+            .with_name("error-test-cidr")
+            .with_master("eth0")
+            .with_pod_cidr("invalid-cidr-format");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("bad-cidr"))
+            .with_netns(&CniTestUtils::unique_netns_path("bad-cidr"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Should handle malformed CIDR appropriately
+        if !result.success {
+            println!("Bad CIDR test appropriately failed with: {}", result.stderr);
+        }
+    }
+
+    #[test]
     fn test_error_extraction_utilities() {
         let result_json = r#"{
             "cniVersion": "1.0.0",
@@ -260,5 +676,250 @@ mod enhanced_testing_examples {
         // Test with missing ips field
         let no_ips_json = r#"{"cniVersion": "1.0.0", "interfaces": []}"#;
         assert!(CniTestUtils::extract_ip_from_result(no_ips_json).is_err());
+    }
+
+    #[test]
+    fn test_comprehensive_ipv6_validation() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("ipv6-validation")
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8:42::/64"); // Valid IPv6 CIDR
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("ipv6-val"))
+            .with_netns(&CniTestUtils::unique_netns_path("ipv6-val"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Parse captured commands to validate IPv6-specific operations
+        let commands = runner.parse_dry_run_commands(&result.stderr);
+
+        // Verify IPv6-specific commands are used
+        let has_ipv6_operations = commands.iter().any(|cmd| {
+            cmd.args.iter().any(|arg| arg.contains("2001:db8"))
+                || cmd.args.contains(&"-6".to_string())
+        });
+
+        assert!(
+            has_ipv6_operations,
+            "Expected IPv6-specific operations in command sequence"
+        );
+
+        // Verify router advertisement configuration
+        let has_accept_ra = commands.iter().any(|cmd| {
+            cmd.program == "nsenter" && cmd.args.iter().any(|arg| arg.contains("accept_ra"))
+        });
+
+        assert!(
+            has_accept_ra,
+            "Expected IPv6 router advertisement configuration"
+        );
+    }
+
+    #[test]
+    fn test_interface_lifecycle_validation() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("lifecycle-test")
+            .with_master("eth1")
+            .with_pod_cidr("2001:db8:99::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("lifecycle"))
+            .with_netns(&CniTestUtils::unique_netns_path("lifecycle"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+        let commands = runner.parse_dry_run_commands(&result.stderr);
+
+        // Debug: print all captured commands
+        println!("Captured {} commands:", commands.len());
+        for (i, cmd) in commands.iter().enumerate() {
+            println!("  {}: {} {:?}", i, cmd.program, cmd.args);
+        }
+
+        // Look for checking commands - they appear in stderr but might not be parsed as commands
+        let has_interface_check = result.stderr.contains("Checking if interface")
+            || commands
+                .iter()
+                .any(|cmd| cmd.program == "ip" && cmd.args.contains(&"show".to_string()));
+
+        // Verify interface creation
+        let has_interface_creation = commands.iter().any(|cmd| {
+            cmd.program == "ip"
+                && cmd.args.contains(&"add".to_string())
+                && cmd.args.contains(&"ipvlan".to_string())
+        });
+
+        // Verify address configuration (nsenter with addr)
+        let has_address_config = commands
+            .iter()
+            .any(|cmd| cmd.program == "nsenter" && cmd.args.iter().any(|arg| arg.contains("addr")));
+
+        // Verify interface activation (nsenter with link set up)
+        let has_interface_activation = commands
+            .iter()
+            .any(|cmd| cmd.program == "nsenter" && cmd.args.contains(&"up".to_string()));
+
+        // More lenient assertions - at least verify core functionality
+        assert!(
+            has_interface_check,
+            "Expected interface existence check (in stderr or commands)"
+        );
+        assert!(has_interface_creation, "Expected interface creation");
+        assert!(has_address_config, "Expected address configuration");
+        assert!(has_interface_activation, "Expected interface activation");
+    }
+
+    #[test]
+    fn test_duplicate_address_detection_setup() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("dad-test")
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8:dad::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("dad-test"))
+            .with_netns(&CniTestUtils::unique_netns_path("dad-test"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+        let commands = runner.parse_dry_run_commands(&result.stderr);
+
+        // Verify DAD-related configuration
+        let has_dad_wait = commands.iter().any(|cmd| {
+            cmd.program == "nsenter" && cmd.args.iter().any(|arg| arg.contains("Wait for DAD"))
+        });
+
+        // Also check for IPv6 address showing command which relates to DAD
+        let has_addr_show = commands.iter().any(|cmd| {
+            cmd.program == "nsenter"
+                && cmd.args.contains(&"addr".to_string())
+                && cmd.args.contains(&"show".to_string())
+        });
+
+        assert!(
+            has_dad_wait || has_addr_show,
+            "Expected DAD-related operations"
+        );
+    }
+
+    #[test]
+    fn test_gateway_detection_and_routing() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("gateway-test")
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8:gw::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("gw-test"))
+            .with_netns(&CniTestUtils::unique_netns_path("gw-test"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+        let commands = runner.parse_dry_run_commands(&result.stderr);
+
+        // Debug: print all captured commands
+        println!("Gateway test - Captured {} commands:", commands.len());
+        for (i, cmd) in commands.iter().enumerate() {
+            println!("  {}: {} {:?}", i, cmd.program, cmd.args);
+        }
+
+        // Look for route configuration in the commands
+        let has_route_config = commands.iter().any(|cmd| {
+            cmd.program == "nsenter" && cmd.args.iter().any(|arg| arg.contains("route"))
+        });
+
+        // Also check stderr for gateway detection messages
+        let has_gateway_detection =
+            result.stderr.contains("Checking gateway") || result.stderr.contains("gateway");
+
+        // Verify link-local gateway address is used (fe80::)
+        let uses_link_local_gw = commands
+            .iter()
+            .any(|cmd| cmd.args.iter().any(|arg| arg.contains("fe80::")))
+            || result.stderr.contains("fe80::");
+
+        assert!(
+            has_route_config || has_gateway_detection,
+            "Expected route configuration or gateway detection"
+        );
+        assert!(uses_link_local_gw, "Expected link-local gateway address");
+    }
+
+    #[test]
+    fn test_json_output_structure_validation() {
+        let runner = TestRunner::new("./target/debug/cni-gesprek");
+
+        let config = CniConfigBuilder::new()
+            .with_name("json-validation")
+            .with_master("eth0")
+            .with_pod_cidr("2001:db8:json::/64");
+
+        let env = CniEnvBuilder::new()
+            .with_command("ADD")
+            .with_container_id(&CniTestUtils::unique_container_id("json-val"))
+            .with_netns(&CniTestUtils::unique_netns_path("json-val"))
+            .with_ifname("eth0");
+
+        let result = runner.run_cni(&config, &env, true).unwrap();
+
+        // Validate JSON structure more thoroughly
+        if !result.stdout.is_empty() {
+            match CniTestUtils::validate_json_structure(
+                &result.stdout,
+                &["cniVersion", "interfaces", "ips"],
+            ) {
+                Ok(json) => {
+                    // Verify version format
+                    assert_eq!(json["cniVersion"], "1.0.0", "Unexpected CNI version");
+
+                    // Verify interfaces array structure
+                    let interfaces = json["interfaces"].as_array().unwrap();
+                    assert!(
+                        !interfaces.is_empty(),
+                        "Interfaces array should not be empty"
+                    );
+
+                    // Verify each interface has required fields
+                    for interface in interfaces {
+                        assert!(
+                            interface["name"].is_string(),
+                            "Interface name should be string"
+                        );
+                        assert!(
+                            interface["sandbox"].is_string(),
+                            "Interface sandbox should be string"
+                        );
+                    }
+
+                    // Verify IPs array structure
+                    let ips = json["ips"].as_array().unwrap();
+                    for ip in ips {
+                        assert_eq!(ip["version"], "6", "Expected IPv6 addresses only");
+                        assert!(ip["address"].is_string(), "IP address should be string");
+                        assert!(
+                            ip["interface"].is_number(),
+                            "Interface index should be number"
+                        );
+                    }
+                }
+                Err(e) => panic!("JSON validation failed: {}", e),
+            }
+        } else {
+            println!("No JSON output to validate - may be expected in dry run mode");
+        }
     }
 }
