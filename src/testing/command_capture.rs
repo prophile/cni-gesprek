@@ -57,7 +57,7 @@ impl CommandCaptureDriver {
             "--".to_string(),
         ];
         args.extend(command.iter().map(|s| s.to_string()));
-        
+
         let cmd = CapturedCommand {
             program: "nsenter".to_string(),
             args,
@@ -126,7 +126,10 @@ impl NetworkDriver for CommandCaptureDriver {
                 "link", "add", "link", parent, "name", temp_name, "type", "ipvlan", "mode", mode,
                 "bridge",
             ],
-            &format!("Create ipvlan {} on parent {} with mode {}", temp_name, parent, mode),
+            &format!(
+                "Create ipvlan {} on parent {} with mode {}",
+                temp_name, parent, mode
+            ),
         );
         Ok(())
     }
@@ -143,7 +146,14 @@ impl NetworkDriver for CommandCaptureDriver {
     fn set_netns(&self, ifname: &str, netns_path: &Path) -> Result<(), Box<dyn Error>> {
         self.capture_command(
             "ip",
-            &["link", "set", "dev", ifname, "netns", &netns_path.display().to_string()],
+            &[
+                "link",
+                "set",
+                "dev",
+                ifname,
+                "netns",
+                &netns_path.display().to_string(),
+            ],
             &format!("Move interface {} to netns {:?}", ifname, netns_path),
         );
         Ok(())
@@ -160,7 +170,15 @@ impl NetworkDriver for CommandCaptureDriver {
         // 1. Rename interface
         self.capture_nsenter_command(
             netns_path,
-            &["ip", "link", "set", "dev", temp_ifname, "name", target_ifname],
+            &[
+                "ip",
+                "link",
+                "set",
+                "dev",
+                temp_ifname,
+                "name",
+                target_ifname,
+            ],
             &format!("Rename interface {} to {}", temp_ifname, target_ifname),
         );
 
@@ -191,7 +209,15 @@ impl NetworkDriver for CommandCaptureDriver {
             self.capture_nsenter_command(
                 netns_path,
                 &[
-                    "ip", "-6", "route", "add", "default", "via", gw, "dev", target_ifname,
+                    "ip",
+                    "-6",
+                    "route",
+                    "add",
+                    "default",
+                    "via",
+                    gw,
+                    "dev",
+                    target_ifname,
                 ],
                 &format!("Add default route via {} on {}", gw, target_ifname),
             );
@@ -213,14 +239,18 @@ impl CommandCaptureDriver {
     /// Check if any command matches the given program and args
     pub fn has_command(&self, program: &str, args: &[&str]) -> bool {
         self.commands.borrow().iter().any(|cmd| {
-            cmd.program == program && cmd.args == args.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            cmd.program == program
+                && cmd.args == args.iter().map(|s| s.to_string()).collect::<Vec<_>>()
         })
     }
 
     /// Check if any command contains the given arguments (partial match)
     pub fn has_command_containing(&self, program: &str, partial_args: &[&str]) -> bool {
         self.commands.borrow().iter().any(|cmd| {
-            cmd.program == program && partial_args.iter().all(|arg| cmd.args.contains(&arg.to_string()))
+            cmd.program == program
+                && partial_args
+                    .iter()
+                    .all(|arg| cmd.args.contains(&arg.to_string()))
         })
     }
 
@@ -247,8 +277,9 @@ impl CommandCaptureDriver {
             .chain(inner_command.iter().map(|s| s.to_string()))
             .collect();
 
-        self.commands.borrow().iter().any(|cmd| {
-            cmd.program == "nsenter" && cmd.args == expected_args
-        })
+        self.commands
+            .borrow()
+            .iter()
+            .any(|cmd| cmd.program == "nsenter" && cmd.args == expected_args)
     }
 }

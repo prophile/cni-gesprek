@@ -38,7 +38,12 @@ impl CniConfigBuilder {
         self
     }
 
-    pub fn with_dns(mut self, nameservers: Vec<&str>, domain: Option<&str>, search: Option<Vec<&str>>) -> Self {
+    pub fn with_dns(
+        mut self,
+        nameservers: Vec<&str>,
+        domain: Option<&str>,
+        search: Option<Vec<&str>>,
+    ) -> Self {
         let mut dns = json!({
             "nameservers": nameservers
         });
@@ -84,32 +89,38 @@ impl CniEnvBuilder {
     }
 
     pub fn with_command(mut self, command: &str) -> Self {
-        self.env_vars.insert("CNI_COMMAND".to_string(), command.to_string());
+        self.env_vars
+            .insert("CNI_COMMAND".to_string(), command.to_string());
         self
     }
 
     pub fn with_container_id(mut self, id: &str) -> Self {
-        self.env_vars.insert("CNI_CONTAINERID".to_string(), id.to_string());
+        self.env_vars
+            .insert("CNI_CONTAINERID".to_string(), id.to_string());
         self
     }
 
     pub fn with_netns(mut self, netns: &str) -> Self {
-        self.env_vars.insert("CNI_NETNS".to_string(), netns.to_string());
+        self.env_vars
+            .insert("CNI_NETNS".to_string(), netns.to_string());
         self
     }
 
     pub fn with_ifname(mut self, ifname: &str) -> Self {
-        self.env_vars.insert("CNI_IFNAME".to_string(), ifname.to_string());
+        self.env_vars
+            .insert("CNI_IFNAME".to_string(), ifname.to_string());
         self
     }
 
     pub fn with_args(mut self, args: &str) -> Self {
-        self.env_vars.insert("CNI_ARGS".to_string(), args.to_string());
+        self.env_vars
+            .insert("CNI_ARGS".to_string(), args.to_string());
         self
     }
 
     pub fn with_path(mut self, path: &str) -> Self {
-        self.env_vars.insert("CNI_PATH".to_string(), path.to_string());
+        self.env_vars
+            .insert("CNI_PATH".to_string(), path.to_string());
         self
     }
 
@@ -124,7 +135,10 @@ impl CniEnvBuilder {
 
     /// Convert to a vector of tuples for use with process builders
     pub fn as_env_vec(&self) -> Vec<(String, String)> {
-        self.env_vars.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.env_vars
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 }
 
@@ -207,8 +221,7 @@ impl TestScenarios {
 
     /// DEL command scenario
     pub fn delete() -> (CniConfigBuilder, CniEnvBuilder) {
-        let config = CniConfigBuilder::new()
-            .with_name("test-delete");
+        let config = CniConfigBuilder::new().with_name("test-delete");
 
         let env = CniEnvBuilder::new()
             .with_command("DEL")
@@ -221,8 +234,7 @@ impl TestScenarios {
 
     /// CHECK command scenario
     pub fn check() -> (CniConfigBuilder, CniEnvBuilder) {
-        let config = CniConfigBuilder::new()
-            .with_name("test-check");
+        let config = CniConfigBuilder::new().with_name("test-check");
 
         let env = CniEnvBuilder::new()
             .with_command("CHECK")
@@ -237,8 +249,7 @@ impl TestScenarios {
     pub fn version() -> (CniConfigBuilder, CniEnvBuilder) {
         let config = CniConfigBuilder::new();
 
-        let env = CniEnvBuilder::new()
-            .with_command("VERSION");
+        let env = CniEnvBuilder::new().with_command("VERSION");
 
         (config, env)
     }

@@ -2,15 +2,15 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use serde_json::Value;
 use std::env;
+use std::io::Write;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
-use std::io::Write;
 
 fn get_binary_path() -> PathBuf {
     let mut binary_path = env::current_exe().unwrap();
     binary_path.pop(); // remove test binary name
     if binary_path.ends_with("deps") {
-        binary_path.pop(); // remove deps directory  
+        binary_path.pop(); // remove deps directory
     }
     binary_path.push("cni-gesprek");
     binary_path
@@ -20,15 +20,15 @@ fn get_binary_path() -> PathBuf {
 fn test_version_command() {
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "VERSION");
-    
+
     cmd.assert()
         .success()
         .stdout(predicate::function(|output: &str| {
             // Parse JSON and verify structure
             if let Ok(json) = serde_json::from_str::<Value>(output) {
-                json.get("cniVersion").is_some() && 
-                json.get("supportedVersions").is_some() &&
-                json["cniVersion"] == "1.0.0"
+                json.get("cniVersion").is_some()
+                    && json.get("supportedVersions").is_some()
+                    && json["cniVersion"] == "1.0.0"
             } else {
                 false
             }
@@ -50,12 +50,12 @@ fn test_add_command_dry_run() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       .env("CNI_CONTAINERID", "test-container")
-       .env("CNI_NETNS", "/proc/123/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .arg("--dry-run")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container")
+        .env("CNI_NETNS", "/proc/123/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .arg("--dry-run")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
@@ -65,9 +65,9 @@ fn test_add_command_dry_run() {
         .stdout(predicate::function(|output: &str| {
             // Parse JSON result
             if let Ok(json) = serde_json::from_str::<Value>(output) {
-                json.get("interfaces").is_some() && 
-                json.get("ips").is_some() &&
-                json["cniVersion"] == "1.0.0"
+                json.get("interfaces").is_some()
+                    && json.get("ips").is_some()
+                    && json["cniVersion"] == "1.0.0"
             } else {
                 false
             }
@@ -93,21 +93,21 @@ fn test_add_command_with_dns_dry_run() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       .env("CNI_CONTAINERID", "test-container-dns")
-       .env("CNI_NETNS", "/proc/456/ns/net")
-       .env("CNI_IFNAME", "net1")
-       .arg("--dry-run")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-dns")
+        .env("CNI_NETNS", "/proc/456/ns/net")
+        .env("CNI_IFNAME", "net1")
+        .arg("--dry-run")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
         .stdout(predicate::function(|output: &str| {
             // Parse JSON and verify DNS is preserved
             if let Ok(json) = serde_json::from_str::<Value>(output) {
-                json.get("dns").is_some() &&
-                json["dns"]["nameservers"].as_array().unwrap().len() > 0 &&
-                json["dns"]["domain"] == "example.com"
+                json.get("dns").is_some()
+                    && json["dns"]["nameservers"].as_array().unwrap().len() > 0
+                    && json["dns"]["domain"] == "example.com"
             } else {
                 false
             }
@@ -128,12 +128,12 @@ fn test_add_command_auto_detect_interface() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       .env("CNI_CONTAINERID", "test-container-auto")
-       .env("CNI_NETNS", "/proc/789/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .arg("--dry-run")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-auto")
+        .env("CNI_NETNS", "/proc/789/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .arg("--dry-run")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
@@ -154,12 +154,12 @@ fn test_add_command_auto_detect_subnet() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       .env("CNI_CONTAINERID", "test-container-subnet")
-       .env("CNI_NETNS", "/proc/101112/ns/net")
-       .env("CNI_IFNAME", "net0")
-       .arg("--dry-run")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-subnet")
+        .env("CNI_NETNS", "/proc/101112/ns/net")
+        .env("CNI_IFNAME", "net0")
+        .arg("--dry-run")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
@@ -180,11 +180,11 @@ fn test_del_command() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "DEL")
-       .env("CNI_CONTAINERID", "test-container-del")
-       .env("CNI_NETNS", "/proc/131415/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-del")
+        .env("CNI_NETNS", "/proc/131415/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
@@ -210,11 +210,11 @@ fn test_check_command() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
-       .env("CNI_CONTAINERID", "test-container-check")
-       .env("CNI_NETNS", "/proc/161718/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-check")
+        .env("CNI_NETNS", "/proc/161718/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
     cmd.assert()
         .success()
@@ -241,16 +241,16 @@ fn test_status_command() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "STATUS")
-       .env("CNI_CONTAINERID", "test-container-status")
-       .env("CNI_NETNS", "/proc/192021/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .arg("--dry-run")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container-status")
+        .env("CNI_NETNS", "/proc/192021/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .arg("--dry-run")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
-    cmd.assert()
-        .success()
-        .stderr(predicate::str::contains("Checking if interface eth0 exists"));
+    cmd.assert().success().stderr(predicate::str::contains(
+        "Checking if interface eth0 exists",
+    ));
 }
 
 #[test]
@@ -266,12 +266,11 @@ fn test_missing_environment_variables() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       // Missing CNI_NETNS, CNI_IFNAME, etc.
-       .pipe_stdin(&config_file)
-       .unwrap();
+        // Missing CNI_NETNS, CNI_IFNAME, etc.
+        .pipe_stdin(&config_file)
+        .unwrap();
 
-    cmd.assert()
-        .failure();
+    cmd.assert().failure();
 }
 
 #[test]
@@ -283,14 +282,13 @@ fn test_invalid_json_config() {
 
     let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "ADD")
-       .env("CNI_CONTAINERID", "test-container")
-       .env("CNI_NETNS", "/proc/123/ns/net")
-       .env("CNI_IFNAME", "eth0")
-       .pipe_stdin(&config_file)
-       .unwrap();
+        .env("CNI_CONTAINERID", "test-container")
+        .env("CNI_NETNS", "/proc/123/ns/net")
+        .env("CNI_IFNAME", "eth0")
+        .pipe_stdin(&config_file)
+        .unwrap();
 
-    cmd.assert()
-        .failure();
+    cmd.assert().failure();
 }
 
 #[test]

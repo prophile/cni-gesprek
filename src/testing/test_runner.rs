@@ -1,9 +1,9 @@
-use crate::testing::{CommandCaptureDriver, CniConfigBuilder, CniEnvBuilder, CapturedCommand};
+use crate::testing::{CapturedCommand, CniConfigBuilder, CniEnvBuilder, CommandCaptureDriver};
+use serde_json::Value;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use serde_json::Value;
 
 /// Result of a test execution
 #[derive(Debug, Clone)]
@@ -29,7 +29,11 @@ impl TestResult {
 
 impl fmt::Display for TestResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Test Result: {}", if self.success { "PASS" } else { "FAIL" })?;
+        writeln!(
+            f,
+            "Test Result: {}",
+            if self.success { "PASS" } else { "FAIL" }
+        )?;
         if !self.stdout.is_empty() {
             writeln!(f, "STDOUT:\n{}", self.stdout)?;
         }
@@ -88,7 +92,7 @@ impl TestRunner {
         let env_vars = env.clone().build();
 
         let mut cmd = Command::new(&self.binary_path);
-        
+
         // Set environment variables
         for (key, value) in env_vars.iter() {
             cmd.env(key, value);
@@ -100,8 +104,8 @@ impl TestRunner {
         }
 
         cmd.stdin(Stdio::piped())
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         let mut child = cmd.spawn()?;
 
@@ -125,7 +129,7 @@ impl TestRunner {
     /// Parse captured commands from dry run output
     pub fn parse_dry_run_commands(&self, stderr: &str) -> Vec<CapturedCommand> {
         let mut commands = Vec::new();
-        
+
         for line in stderr.lines() {
             if let Some(command_str) = line.strip_prefix("[DRY-RUN] ") {
                 // Simple parsing - in a real implementation, you might want more sophisticated parsing
@@ -140,7 +144,7 @@ impl TestRunner {
                 }
             }
         }
-        
+
         commands
     }
 
@@ -153,7 +157,10 @@ impl TestRunner {
     }
 
     /// Run multiple test cases
-    pub fn run_tests(&self, test_cases: Vec<Box<dyn TestCase>>) -> Vec<(String, Result<TestResult, Box<dyn Error>>)> {
+    pub fn run_tests(
+        &self,
+        test_cases: Vec<Box<dyn TestCase>>,
+    ) -> Vec<(String, Result<TestResult, Box<dyn Error>>)> {
         test_cases
             .into_iter()
             .map(|test_case| {
@@ -177,9 +184,10 @@ impl CommandValidators {
         description: &str,
     ) {
         let found = result.captured_commands.iter().any(|cmd| {
-            cmd.program == program && cmd.args == args.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+            cmd.program == program
+                && cmd.args == args.iter().map(|s| s.to_string()).collect::<Vec<_>>()
         });
-        
+
         if !found {
             result.add_error(format!(
                 "{}: Expected command '{}' with args {:?} not found",
@@ -195,14 +203,14 @@ impl CommandValidators {
         description: &str,
     ) {
         let mut last_found_index = 0;
-        
+
         for (expected_program, expected_args) in expected_sequence {
             let found = result.captured_commands[last_found_index..]
                 .iter()
                 .enumerate()
                 .find(|(_, cmd)| cmd.program == *expected_program && cmd.args == *expected_args)
                 .map(|(i, _)| i + last_found_index);
-                
+
             match found {
                 Some(index) => {
                     last_found_index = index + 1;
@@ -231,9 +239,10 @@ impl CommandValidators {
             .chain(inner_command.iter().map(|s| s.to_string()))
             .collect();
 
-        let found = result.captured_commands.iter().any(|cmd| {
-            cmd.program == "nsenter" && cmd.args == expected_args
-        });
+        let found = result
+            .captured_commands
+            .iter()
+            .any(|cmd| cmd.program == "nsenter" && cmd.args == expected_args);
 
         if !found {
             result.add_error(format!(
@@ -261,10 +270,7 @@ impl CommandValidators {
                 }
             }
             Err(e) => {
-                result.add_error(format!(
-                    "{}: Invalid JSON output: {}",
-                    description, e
-                ));
+                result.add_error(format!("{}: Invalid JSON output: {}", description, e));
             }
         }
     }
@@ -277,14 +283,14 @@ impl CommandValidators {
         description: &str,
     ) {
         let found = result.captured_commands.iter().any(|cmd| {
-            cmd.program == "ip" &&
-            cmd.args.contains(&"add".to_string()) &&
-            cmd.args.contains(&"type".to_string()) &&
-            cmd.args.contains(&"ipvlan".to_string()) &&
-            cmd.args.contains(&format!("mode").to_string()) &&
-            cmd.args.contains(&mode.to_string()) &&
-            cmd.args.contains(&"link".to_string()) &&
-            cmd.args.contains(&parent.to_string())
+            cmd.program == "ip"
+                && cmd.args.contains(&"add".to_string())
+                && cmd.args.contains(&"type".to_string())
+                && cmd.args.contains(&"ipvlan".to_string())
+                && cmd.args.contains(&format!("mode").to_string())
+                && cmd.args.contains(&mode.to_string())
+                && cmd.args.contains(&"link".to_string())
+                && cmd.args.contains(&parent.to_string())
         });
 
         if !found {
@@ -307,14 +313,15 @@ mod tests {
             stdout: String::new(),
             stderr: String::new(),
             exit_code: Some(0),
-            captured_commands: vec![
-                CapturedCommand {
-                    program: "ip".to_string(),
-                    args: vec!["link", "show", "eth0"].iter().map(|s| s.to_string()).collect(),
-                    working_dir: None,
-                    description: "test".to_string(),
-                }
-            ],
+            captured_commands: vec![CapturedCommand {
+                program: "ip".to_string(),
+                args: vec!["link", "show", "eth0"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                working_dir: None,
+                description: "test".to_string(),
+            }],
             errors: Vec::new(),
         };
 

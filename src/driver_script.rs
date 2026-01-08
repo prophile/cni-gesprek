@@ -256,3 +256,110 @@ impl NetworkDriver for ScriptDriver {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_cmd_success() {
+        // Test with a simple command that should always work
+        let result = ScriptDriver::run_cmd("echo", &["hello"]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_run_cmd_failure() {
+        // Test with a command that should fail
+        let result = ScriptDriver::run_cmd("false", &[]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Command failed"));
+    }
+
+    #[test]
+    fn test_run_cmd_nonexistent() {
+        // Test with a nonexistent command
+        let result = ScriptDriver::run_cmd("nonexistent_command_12345", &[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_cmd_with_args() {
+        // Test command with multiple arguments
+        let result = ScriptDriver::run_cmd("echo", &["hello", "world"]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_json_parsing_robustness() {
+        // Test how we handle malformed JSON responses
+        // This simulates what might happen if ip command returns unexpected format
+
+        // Valid empty array
+        let json = "[]";
+        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok());
+        assert_eq!(parsed.unwrap().len(), 0);
+
+        // Invalid JSON should be handled gracefully
+        let json = "{ invalid json";
+        let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(json);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_interface_name_safety() {
+        // Test that interface names would be safe to use in commands
+        let safe_names = vec!["eth0", "ens3", "wlan0", "br-12345", "vethABC123"];
+        let unsafe_names = vec!["eth0; rm -rf /", "eth0 && evil", "eth0`command`"];
+
+        for name in safe_names {
+            assert!(!name.contains(';'));
+            assert!(!name.contains('&'));
+            assert!(!name.contains('`'));
+            assert!(!name.contains('$'));
+            assert!(!name.contains('|'));
+        }
+
+        for name in unsafe_names {
+            assert!(
+                name.contains(';')
+                    || name.contains('&')
+                    || name.contains('`')
+                    || name.contains('$')
+                    || name.contains('|'),
+                "Name {} should be detected as unsafe",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_path_to_str_safety() {
+        use std::path::Path;
+
+        // Test that path conversion handles edge cases
+        let safe_paths = vec!["/proc/123/ns/net", "/var/run/netns/test"];
+
+        for path_str in safe_paths {
+            let path = Path::new(path_str);
+            let converted = path.to_str();
+            assert!(converted.is_some());
+            assert_eq!(converted.unwrap(), path_str);
+        }
+    }
+
+    #[test]
+    fn test_error_message_content() {
+        // Test that error messages contain useful information
+        let result = ScriptDriver::run_cmd("false", &["arg1", "arg2"]);
+        assert!(result.is_err());
+
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Command failed"));
+        assert!(error_msg.contains("false"));
+        assert!(error_msg.contains("arg1 arg2"));
+    }
+}

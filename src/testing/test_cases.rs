@@ -1,5 +1,6 @@
 use crate::testing::{
-    TestCase, TestResult, TestRunner, CommandValidators, CniConfigBuilder, CniEnvBuilder, TestScenarios
+    CniConfigBuilder, CniEnvBuilder, CommandValidators, TestCase, TestResult, TestRunner,
+    TestScenarios,
 };
 use std::error::Error;
 
@@ -47,7 +48,7 @@ impl TestCase for BasicAddTest {
         CommandValidators::expect_json_output(
             result,
             &["cniVersion", "interfaces", "ips"],
-            "JSON output validation"
+            "JSON output validation",
         );
 
         // Validate that interface checking was performed
@@ -55,16 +56,11 @@ impl TestCase for BasicAddTest {
             result,
             "ip",
             &["link", "show", "dev", "eth0"],
-            "Interface existence check"
+            "Interface existence check",
         );
 
         // Validate ipvlan creation
-        CommandValidators::expect_ipvlan_creation(
-            result,
-            "eth0",
-            "l2",
-            "IPvlan creation"
-        );
+        CommandValidators::expect_ipvlan_creation(result, "eth0", "l2", "IPvlan creation");
 
         // Validate interface configuration in namespace
         let netns = "/proc/12345/ns/net";
@@ -72,21 +68,21 @@ impl TestCase for BasicAddTest {
             result,
             netns,
             &["ip", "addr", "add"],
-            "IP address assignment"
+            "IP address assignment",
         );
 
         CommandValidators::expect_nsenter_command(
             result,
             netns,
             &["ip", "link", "set", "up", "dev", "eth0"],
-            "Interface activation"
+            "Interface activation",
         );
 
         CommandValidators::expect_nsenter_command(
             result,
             netns,
             &["sysctl", "-w"],
-            "accept_ra configuration"
+            "accept_ra configuration",
         );
     }
 }
@@ -134,7 +130,7 @@ impl TestCase for AddWithDnsTest {
         CommandValidators::expect_json_output(
             result,
             &["cniVersion", "interfaces", "ips", "dns"],
-            "JSON output with DNS validation"
+            "JSON output with DNS validation",
         );
 
         // Validate interface checking for eth1
@@ -142,7 +138,7 @@ impl TestCase for AddWithDnsTest {
             result,
             "ip",
             &["link", "show", "dev", "eth1"],
-            "Interface existence check"
+            "Interface existence check",
         );
     }
 }
@@ -186,7 +182,7 @@ impl TestCase for AutoDetectTest {
             result,
             "ip",
             &["-6", "-j", "route", "show", "default"],
-            "IPv6 default route detection"
+            "IPv6 default route detection",
         );
 
         // The detected interface should be used for subsequent operations
@@ -233,7 +229,7 @@ impl TestCase for SubnetDetectTest {
             result,
             "ip",
             &["-j", "-6", "addr", "show", "dev", "eth2", "scope", "global"],
-            "Subnet detection on interface"
+            "Subnet detection on interface",
         );
 
         // Validate gateway detection
@@ -241,7 +237,7 @@ impl TestCase for SubnetDetectTest {
             result,
             "ip",
             &["-6", "-j", "route", "show", "default", "dev", "eth2"],
-            "Gateway detection on interface"
+            "Gateway detection on interface",
         );
     }
 }
@@ -286,7 +282,7 @@ impl TestCase for VersionTest {
         CommandValidators::expect_json_output(
             result,
             &["cniVersion", "supportedVersions"],
-            "VERSION response validation"
+            "VERSION response validation",
         );
 
         // Check for specific version content
@@ -333,11 +329,7 @@ impl TestCase for DeleteTest {
         }
 
         // DEL should return success JSON
-        CommandValidators::expect_json_output(
-            result,
-            &["cniVersion"],
-            "DEL response validation"
-        );
+        CommandValidators::expect_json_output(result, &["cniVersion"], "DEL response validation");
     }
 }
 
@@ -378,11 +370,7 @@ impl TestCase for CheckTest {
         }
 
         // CHECK should return success JSON
-        CommandValidators::expect_json_output(
-            result,
-            &["cniVersion"],
-            "CHECK response validation"
-        );
+        CommandValidators::expect_json_output(result, &["cniVersion"], "CHECK response validation");
     }
 }
 
@@ -429,7 +417,7 @@ impl TestCase for StatusTest {
             result,
             "ip",
             &["link", "show", "dev", "eth0"],
-            "STATUS interface check"
+            "STATUS interface check",
         );
     }
 }

@@ -3,7 +3,7 @@ use std::env;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let binary_path = if args.len() > 1 {
         args[1].clone()
     } else {
@@ -21,7 +21,7 @@ fn main() {
     println!("========================================");
 
     let runner = TestRunner::new(&binary_path);
-    
+
     let test_cases: Vec<Box<dyn TestCase>> = vec![
         Box::new(BasicAddTest::new()),
         Box::new(AddWithDnsTest::new()),
@@ -39,7 +39,7 @@ fn main() {
     for test_case in test_cases {
         let test_name = test_case.name().to_string();
         print!("Running {:<30}", test_name);
-        
+
         match runner.run_test(test_case) {
             Ok(result) => {
                 if result.is_success() {
@@ -61,7 +61,7 @@ fn main() {
 
     println!("\n========================================");
     println!("Test Results: {} passed, {} failed", passed, failed);
-    
+
     if failed > 0 {
         std::process::exit(1);
     }
