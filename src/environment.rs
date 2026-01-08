@@ -1,4 +1,5 @@
 use crate::error::{CniResult, EnvironmentError};
+use regex::Regex;
 use std::collections::HashMap;
 use std::env;
 
@@ -123,10 +124,11 @@ impl CniEnvironment {
         }
     }
 
-    /// Validate that all required environment variables are present for a given command
+    /// Validate that all required environment variables are present and have valid values for a given command
     pub fn validate_for_command(&self) -> CniResult<()> {
         match self.command.as_str() {
             "ADD" | "DEL" | "CHECK" => {
+                // Check presence of required variables
                 if self.netns.is_none() {
                     return Err(EnvironmentError::MissingVariable {
                         variable: "CNI_NETNS".to_string(),
@@ -148,6 +150,19 @@ impl CniEnvironment {
                         command: self.command.clone(),
                     }
                     .into());
+                }
+
+                // Validate content/format of required variables
+                if let Some(ref netns) = self.netns {
+                    self.validate_netns_format(netns)?;
+                }
+
+                if let Some(ref ifname) = self.ifname {
+                    self.validate_ifname_format(ifname)?;
+                }
+
+                if let Some(ref container_id) = self.container_id {
+                    self.validate_container_id_format(container_id)?;
                 }
             }
             "VERSION" | "STATUS" | "GC" => {
@@ -199,6 +214,124 @@ impl CniEnvironment {
                 }
                 .into()
             })
+    }
+
+    /// Validate CNI_NETNS path format
+    fn validate_netns_format(&self, netns: &str) -> CniResult<()> {
+        // Validate that the path looks like a valid network namespace path
+
+        // Check for common netns path patterns
+        let netns_patterns = [
+            r"^/proc/\d+/ns/net$",              // /proc/{pid}/ns/net
+            r"^/proc/self/ns/net$",             // /proc/self/ns/net
+            r"^/var/run/netns/[a-zA-Z0-9_-]+$", // /var/run/netns/{name}
+            r"^/run/netns/[a-zA-Z0-9_-]+$",     // /run/netns/{name}
+        ];
+
+        let is_valid = netns_patterns.iter().any(|pattern| {
+            Regex::new(pattern)
+                .map(|re| re.is_match(netns))
+                .unwrap_or(false)
+        });
+
+        if !is_valid {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_NETNS".to_string(),
+                value: netns.to_string(),
+                expected: "valid network namespace path (e.g., /proc/{pid}/ns/net or /var/run/netns/{name})".to_string(),
+            }.into());
+        }
+
+        Ok(())
+    }
+
+    /// Validate CNI_IFNAME format
+    fn validate_ifname_format(&self, ifname: &str) -> CniResult<()> {
+        // Linux network interface naming rules
+        // - Maximum 15 characters (IFNAMSIZ - 1)
+        // - Can contain alphanumeric characters, hyphens, underscores, dots
+        // - Cannot start with a dot
+        // - Cannot be empty
+
+        if ifname.is_empty() {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_IFNAME".to_string(),
+                value: ifname.to_string(),
+                expected: "non-empty interface name".to_string(),
+            }
+            .into());
+        }
+
+        if ifname.len() > 15 {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_IFNAME".to_string(),
+                value: ifname.to_string(),
+                expected: "interface name with maximum 15 characters".to_string(),
+            }
+            .into());
+        }
+
+        if ifname.starts_with('.') {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_IFNAME".to_string(),
+                value: ifname.to_string(),
+                expected: "interface name that does not start with a dot".to_string(),
+            }
+            .into());
+        }
+
+        // Check for valid characters (alphanumeric, hyphen, underscore, dot)
+        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
+        if !valid_chars_re.is_match(ifname) {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_IFNAME".to_string(),
+                value: ifname.to_string(),
+                expected: "interface name containing only alphanumeric characters, hyphens, underscores, and dots".to_string(),
+            }.into());
+        }
+
+        Ok(())
+    }
+
+    /// Validate CNI_CONTAINERID format  
+    fn validate_container_id_format(&self, container_id: &str) -> CniResult<()> {
+        // Container ID validation rules:
+        // - Should not be empty
+        // - Should contain only alphanumeric characters, hyphens, underscores
+        // - Reasonable length limits (between 1 and 64 characters)
+
+        if container_id.is_empty() {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_CONTAINERID".to_string(),
+                value: container_id.to_string(),
+                expected: "non-empty container ID".to_string(),
+            }
+            .into());
+        }
+
+        if container_id.len() > 64 {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_CONTAINERID".to_string(),
+                value: container_id.to_string(),
+                expected: "container ID with maximum 64 characters".to_string(),
+            }
+            .into());
+        }
+
+        // Check for valid characters (alphanumeric, hyphen, underscore)
+        let valid_chars_re = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
+        if !valid_chars_re.is_match(container_id) {
+            return Err(EnvironmentError::InvalidValue {
+                name: "CNI_CONTAINERID".to_string(),
+                value: container_id.to_string(),
+                expected:
+                    "container ID containing only alphanumeric characters, hyphens, and underscores"
+                        .to_string(),
+            }
+            .into());
+        }
+
+        Ok(())
     }
 }
 
@@ -315,5 +448,197 @@ mod tests {
         assert!(empty_env.get_netns().is_err());
         assert!(empty_env.get_ifname().is_err());
         assert!(empty_env.get_container_id().is_err());
+    }
+
+    #[test]
+    fn test_cni_netns_validation() {
+        let mut provider = MockEnvironmentProvider::new();
+        provider.set("CNI_COMMAND", "ADD").set("CNI_IFNAME", "eth0");
+
+        // Test valid netns paths
+        let valid_paths = [
+            "/proc/123/ns/net",
+            "/proc/9999/ns/net",
+            "/proc/self/ns/net", // Special case for current process
+            "/var/run/netns/test",
+            "/var/run/netns/test-namespace",
+            "/var/run/netns/test_namespace",
+            "/run/netns/myns",
+            "/run/netns/my-test-ns",
+        ];
+
+        for path in &valid_paths {
+            provider.set("CNI_NETNS", *path);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_ok(),
+                "Valid netns path should pass validation: {}",
+                path
+            );
+        }
+
+        // Test invalid netns paths
+        let invalid_paths = [
+            "",                            // Empty
+            "/invalid/path",               // Not a netns path
+            "/proc/abc/ns/net",            // Non-numeric pid
+            "/proc/123/ns/invalid",        // Wrong ns type
+            "proc/123/ns/net",             // Missing leading slash
+            "/var/run/netns/",             // Missing name
+            "/var/run/netns/test space",   // Space in name
+            "/var/run/netns/test@invalid", // Invalid character
+        ];
+
+        for path in &invalid_paths {
+            provider.set("CNI_NETNS", *path);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_err(),
+                "Invalid netns path should fail validation: {}",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_cni_ifname_validation() {
+        let mut provider = MockEnvironmentProvider::new();
+        provider
+            .set("CNI_COMMAND", "ADD")
+            .set("CNI_NETNS", "/proc/123/ns/net");
+
+        // Test valid interface names
+        let valid_names = [
+            "eth0",
+            "eth1",
+            "veth1234",
+            "cni-12345",
+            "test_interface",
+            "lo",
+            "test.sub",
+            "a",               // Minimum length
+            "123456789012345", // Maximum length (15 chars)
+        ];
+
+        for name in &valid_names {
+            provider.set("CNI_IFNAME", *name);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_ok(),
+                "Valid interface name should pass validation: {}",
+                name
+            );
+        }
+
+        // Test invalid interface names
+        let invalid_names = [
+            "",                 // Empty
+            "1234567890123456", // Too long (16+ chars)
+            ".eth0",            // Starts with dot
+            "eth 0",            // Space
+            "eth@0",            // Invalid character
+            "eth#0",            // Invalid character
+            "eth/0",            // Invalid character
+            "eth\\0",           // Invalid character
+            "eth:0",            // Invalid character
+        ];
+
+        for name in &invalid_names {
+            provider.set("CNI_IFNAME", *name);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_err(),
+                "Invalid interface name should fail validation: {}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_cni_containerid_validation() {
+        let mut provider = MockEnvironmentProvider::new();
+        provider
+            .set("CNI_COMMAND", "DEL")
+            .set("CNI_NETNS", "/proc/123/ns/net")
+            .set("CNI_IFNAME", "eth0");
+
+        // Test valid container IDs
+        let valid_ids = [
+            "container123",
+            "test-container",
+            "test_container",
+            "a",                                                                // Minimum length
+            "ABCD1234",                                                         // Uppercase
+            "test-123_456", // Mix of valid chars
+            "1234567890123456789012345678901234567890123456789012345678901234", // 64 chars (max)
+        ];
+
+        for id in &valid_ids {
+            provider.set("CNI_CONTAINERID", *id);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_ok(),
+                "Valid container ID should pass validation: {}",
+                id
+            );
+        }
+
+        // Test invalid container IDs
+        let invalid_ids = [
+            "",                                                                  // Empty
+            "12345678901234567890123456789012345678901234567890123456789012345", // 65 chars (too long)
+            "test container",                                                    // Space
+            "test@container",  // Invalid character
+            "test.container",  // Invalid character
+            "test/container",  // Invalid character
+            "test\\container", // Invalid character
+            "test:container",  // Invalid character
+            "test#container",  // Invalid character
+        ];
+
+        for id in &invalid_ids {
+            provider.set("CNI_CONTAINERID", *id);
+            let cni_env = CniEnvironment::load(&provider);
+            assert!(
+                cni_env.validate_for_command().is_err(),
+                "Invalid container ID should fail validation: {}",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_environment_validation_integration() {
+        let mut provider = MockEnvironmentProvider::new();
+
+        // Test that validation works end-to-end with multiple invalid values
+        provider
+            .set("CNI_COMMAND", "ADD")
+            .set("CNI_NETNS", "/invalid/path") // Invalid netns
+            .set("CNI_IFNAME", "invalid interface name"); // Invalid ifname (space)
+
+        let cni_env = CniEnvironment::load(&provider);
+        let result = cni_env.validate_for_command();
+        assert!(result.is_err());
+
+        // Fix netns, should still fail on ifname
+        provider.set("CNI_NETNS", "/proc/123/ns/net");
+        let cni_env = CniEnvironment::load(&provider);
+        let result = cni_env.validate_for_command();
+        assert!(result.is_err());
+
+        // Fix ifname, should now pass
+        provider.set("CNI_IFNAME", "eth0");
+        let cni_env = CniEnvironment::load(&provider);
+        let result = cni_env.validate_for_command();
+        assert!(result.is_ok());
+
+        // Test DEL command with all requirements
+        provider
+            .set("CNI_COMMAND", "DEL")
+            .set("CNI_CONTAINERID", "valid-container-123");
+        let cni_env = CniEnvironment::load(&provider);
+        let result = cni_env.validate_for_command();
+        assert!(result.is_ok());
     }
 }

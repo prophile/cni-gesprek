@@ -42,13 +42,22 @@
 **Recommended Actions:**
 - Replace `.ok()` with proper error propagation for JSON parsing
 
-### 3b. Error Handling Issues: Environment Variables
+### 3b. Error Handling Issues: Environment Variables ✅ COMPLETED
 **Priority**: High
-**Status**: Open
-**Location:** [src/main.rs](src/main.rs#L140)  
-**Description:** Environment variables like `CNI_NETNS`, `CNI_IFNAME` are used without validation
-**Recommended Actions:**
-- Add validation for `CNI_NETNS`, `CNI_IFNAME` before use
+**Status**: Resolved ✅
+**Location:** [src/environment.rs](src/environment.rs)  
+**Description:** Environment variables like `CNI_NETNS`, `CNI_IFNAME` are used without validation  
+**Completed Actions:**
+- ✅ Enhanced `CniEnvironment::validate_for_command()` with comprehensive content validation beyond presence checks
+- ✅ Added `CNI_NETNS` path format validation supporting `/proc/{pid}/ns/net`, `/proc/self/ns/net`, `/var/run/netns/{name}`, `/run/netns/{name}` patterns
+- ✅ Implemented `CNI_IFNAME` interface naming validation following Linux rules (max 15 chars, alphanumeric/hyphens/underscores/dots, cannot start with dot)
+- ✅ Added `CNI_CONTAINERID` format validation (max 64 chars, alphanumeric/hyphens/underscores only, non-empty)
+- ✅ Added regex dependency to Cargo.toml for robust pattern matching validation
+- ✅ Created comprehensive unit test coverage with `test_cni_netns_validation`, `test_cni_ifname_validation`, `test_cni_containerid_validation`
+- ✅ Added integration test suite in `tests/environment_validation_integration_tests.rs` validating CLI-level error handling
+- ✅ Updated existing integration test that used invalid long container ID to properly expect validation rejection
+- ✅ All 58+ unit tests and 43+ integration tests pass with enhanced validation
+- ✅ Improved error messages providing specific context about validation failures and expected formats
 
 ### 3c. Error Handling Issues: Structured Errors ✅ COMPLETED
 **Priority**: High

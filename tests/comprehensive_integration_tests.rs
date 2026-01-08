@@ -603,7 +603,7 @@ mod edge_cases {
         let mut config_file = NamedTempFile::new().unwrap();
         config_file.write_all(config.as_bytes()).unwrap();
 
-        let long_id = "a".repeat(100);
+        let long_id = "a".repeat(100); // 100 chars - too long (max 64)
 
         let mut cmd = Command::new(get_binary_path());
         cmd.env("CNI_COMMAND", "ADD")
@@ -614,7 +614,11 @@ mod edge_cases {
             .pipe_stdin(&config_file)
             .unwrap();
 
-        cmd.assert().success();
+        // Should fail due to container ID being too long
+        cmd.assert().failure().stderr(
+            predicate::str::contains("Environment variable 'CNI_CONTAINERID'")
+                .and(predicate::str::contains("maximum 64 characters")),
+        );
     }
 
     #[test]
