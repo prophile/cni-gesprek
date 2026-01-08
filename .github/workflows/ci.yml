@@ -17,8 +17,17 @@ jobs:
     - uses: actions/checkout@v6
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - name: Run tests
+    - name: Run default tests
       run: cargo test --verbose
+    - name: Run all feature tests
+      run: cargo test --all-features --verbose
+    - name: Test benchmark compilation
+      run: cargo bench --no-run
+    - name: Check all feature combinations compile
+      run: |
+        cargo check --all-features
+        cargo check --no-default-features
+        cargo check --features testing
 
   fmt:
     name: Rustfmt
@@ -40,8 +49,38 @@ jobs:
       with:
         components: clippy
     - uses: Swatinem/rust-cache@v2
-    - name: Linting
+    - name: Linting (default features)
       run: cargo clippy -- -D warnings
+    - name: Linting (all features)
+      run: cargo clippy --all-features -- -D warnings
+    - name: Linting (testing features)
+      run: cargo clippy --features testing -- -D warnings
+    - name: Linting benchmarks
+      run: cargo clippy --benches -- -D warnings
+
+  compile-checks:
+    name: Compilation Checks
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Check for deprecation warnings
+      run: |
+        # Ensure no deprecation warnings in any feature configuration
+        cargo build --all-features 2>&1 | tee build.log
+        if grep -q "warning.*deprecated" build.log; then
+          echo "::error::Deprecation warnings found"
+          grep "warning.*deprecated" build.log
+          exit 1
+        fi
+    - name: Verify feature-gated modules compile
+      run: |
+        # Explicitly test that testing modules compile correctly
+        cargo check --features testing
+        cargo test --features testing --no-run
+    - name: Check documentation builds
+      run: cargo doc --no-deps --all-features
 
   build:
     name: Build Release
@@ -77,7 +116,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, fmt, clippy, build]
+    needs: [test, fmt, clippy, compile-checks, build]
     runs-on: ubuntu-latest
     strategy:
       matrix:

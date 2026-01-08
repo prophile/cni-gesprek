@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_system_environment_provider() {
-        let provider = SystemEnvironmentProvider::default();
+        let provider = SystemEnvironmentProvider;
 
         // Test getting an environment variable that should exist
         let path = provider.get("PATH");

@@ -467,7 +467,7 @@ mod tests {
             exit_code: Some(0),
             captured_commands: vec![CapturedCommand {
                 program: "ip".to_string(),
-                args: vec!["link", "show", "eth0"]
+                args: ["link", "show", "eth0"]
                     .iter()
                     .map(|s| s.to_string())
                     .collect(),

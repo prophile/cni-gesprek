@@ -571,8 +571,8 @@ mod tests {
             println!("Debug error: {:?}", result.as_ref().err());
         }
         assert!(result.is_ok());
-        // Just check that we got some output - len() is always >= 0 for Vec
-        assert!(result.unwrap().len() > 0 || true); // Always passes, just checking we can unwrap
+        // Just check that we got some output
+        assert!(!result.unwrap().is_empty()); // Check that result has content
     }
 
     #[test]

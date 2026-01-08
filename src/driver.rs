@@ -276,12 +276,9 @@ mod trait_abstraction_tests {
         lifecycle.create_ipvlan("eth0", "l2", "temp_vlan").unwrap();
 
         let namespace = NamespaceOnlyDriver;
-        assert_eq!(
-            namespace
-                .interface_exists_in_netns(Path::new("/proc/1/ns/net"), "test")
-                .unwrap(),
-            false
-        );
+        assert!(!namespace
+            .interface_exists_in_netns(Path::new("/proc/1/ns/net"), "test")
+            .unwrap());
     }
 
     #[test]
@@ -321,12 +318,9 @@ mod trait_abstraction_tests {
         driver
             .set_netns("test", Path::new("/proc/1/ns/net"))
             .unwrap();
-        assert_eq!(
-            driver
-                .interface_exists_in_netns(Path::new("/proc/1/ns/net"), "test")
-                .unwrap(),
-            true
-        );
+        assert!(driver
+            .interface_exists_in_netns(Path::new("/proc/1/ns/net"), "test")
+            .unwrap());
     }
 
     #[test]

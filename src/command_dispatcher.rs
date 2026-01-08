@@ -322,7 +322,7 @@ mod tests {
             is_dry_run: false,
         };
 
-        let output = StandardOutputWriter::default();
+        let output = StandardOutputWriter;
         let driver = DryRunDriver;
 
         (output, cni_context, driver)

@@ -72,7 +72,7 @@ impl CniContext {
             // In tests, we don't want to actually read from stdin
             #[cfg(test)]
             {
-                return Ok(None);
+                Ok(None)
             }
 
             #[cfg(not(test))]
