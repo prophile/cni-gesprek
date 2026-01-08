@@ -179,16 +179,19 @@
 - ✅ Added comprehensive test coverage (5/5 environment tests passing)
 - ✅ Validated with integration tests (10/10 passing)
 
-### 12e. Direct Output and Error Handling in Command Handlers
+### 12e. Direct Output and Error Handling in Command Handlers ✅ COMPLETED
 **Priority**: Medium
-**Status**: Open
-**Location:** [src/main.rs](src/main.rs#L250), [src/main.rs](src/main.rs#L280), [src/main.rs](src/main.rs#L163-L165)  
+**Status**: Resolved ✅
+**Location:** [src/output.rs](src/output.rs) (new), [src/main.rs](src/main.rs#L104), [src/main.rs](src/main.rs#L192-L195)  
 **Description:** Command handlers directly print to stdout and handle errors inconsistently, making them hard to test and reuse  
-**Recommended Actions:**
-- Create an OutputWriter trait to abstract stdout/stderr operations
-- Return structured results from command handlers instead of printing directly
-- Implement consistent error handling across all command types
-- Separate output formatting from business logic
+**Completed Actions:**
+- ✅ Created OutputWriter trait to abstract stdout/stderr operations
+- ✅ Implemented StandardOutputWriter for production and MockOutputWriter for testing  
+- ✅ Updated CommandContext to include OutputWriter for dependency injection
+- ✅ Refactored all command handlers to use output abstraction instead of direct println!/eprintln!
+- ✅ Separated output formatting from business logic throughout command handlers
+- ✅ Improved testability by making output mockable and capturable
+- ✅ All integration tests passing (10/10) after refactoring
 
 ### 12f. Business Logic Mixed with System Integration
 **Priority**: Medium

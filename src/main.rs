@@ -2,6 +2,7 @@ mod driver;
 mod driver_dryrun;
 mod driver_script;
 mod environment;
+mod output;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -13,6 +14,7 @@ use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
 use driver_script::ScriptDriver;
 use environment::{CniEnvironment, EnvironmentProvider, SystemEnvironmentProvider};
+use output::{OutputWriter, StandardOutputWriter};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::io::{self, Read};
@@ -94,27 +96,29 @@ struct Args {
 
 /// CommandContext consolidates all common parameters passed to CNI command handlers
 /// This eliminates parameter duplication and makes it easier to add new context data
-#[derive(Clone)]
-struct CommandContext {
+struct CommandContext<'a> {
     args: Args,
     config: Option<CniConfig>,
     cni_env: CniEnvironment,
     is_dry_run: bool,
+    output: &'a dyn OutputWriter,
 }
 
-impl CommandContext {
+impl<'a> CommandContext<'a> {
     /// Create a new CommandContext
     fn new(
         args: Args,
         config: Option<CniConfig>,
         cni_env: CniEnvironment,
         is_dry_run: bool,
+        output: &'a dyn OutputWriter,
     ) -> Self {
         Self {
             args,
             config,
             cni_env,
             is_dry_run,
+            output,
         }
     }
 
@@ -150,7 +154,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Validate environment variables for the command early
     if let Err(e) = cni_env.validate_for_command() {
-        eprintln!("Environment validation error: {}", e);
+        let output_writer = StandardOutputWriter;
+        let _ = output_writer.write_error(&format!("Environment validation error: {}", e));
         std::process::exit(1);
     }
 
@@ -176,17 +181,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         };
 
-    let ctx = CommandContext::new(args, cni_config, cni_env, is_dry_run);
+    let output_writer = StandardOutputWriter;
+    let ctx = CommandContext::new(args, cni_config, cni_env, is_dry_run, &output_writer);
 
     match ctx.cni_env.command.as_str() {
         "ADD" => cmd_add(&ctx, &*driver),
         "DEL" => cmd_del(&ctx, &*driver),
         "CHECK" => cmd_check(&ctx, &*driver),
-        "GC" => cmd_success(),
-        "VERSION" => cmd_version(),
+        "GC" => cmd_success(&ctx),
+        "VERSION" => cmd_version(&ctx),
         "STATUS" => cmd_status(&ctx, &*driver),
         _ => {
-            eprintln!("Unknown CNI_COMMAND: {}", ctx.cni_env.command);
+            ctx.output
+                .write_error(&format!("Unknown CNI_COMMAND: {}", ctx.cni_env.command))?;
             std::process::exit(1);
         }
     }
@@ -265,7 +272,7 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
         dns: config.dns.clone(),
     };
 
-    println!("{}", serde_json::to_string(&result)?);
+    ctx.output.write_output(&serde_json::to_string(&result)?)?;
 
     Ok(())
 }
@@ -277,11 +284,12 @@ fn cmd_status(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Bo
     };
 
     driver.check_interface(&master_interface)?;
-    cmd_success()
+    cmd_success(ctx)
 }
 
-fn cmd_version() -> Result<(), Box<dyn Error>> {
-    println!(r#"{{"cniVersion": "1.0.0", "supportedVersions": ["1.0.0"]}}"#);
+fn cmd_version(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+    ctx.output
+        .write_output(r#"{\"cniVersion\": \"1.0.0\", \"supportedVersions\": [\"1.0.0\"]}"#)?;
     Ok(())
 }
 
@@ -309,7 +317,8 @@ fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
         }
         Err(e) => {
             // Log the error but don't fail - DEL should be idempotent
-            eprintln!("Warning during DEL: {}", e);
+            ctx.output
+                .write_error(&format!("Warning during DEL: {}", e))?;
             Ok(())
         }
     }
@@ -356,8 +365,10 @@ fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box
     Ok(())
 }
 
-fn cmd_success() -> Result<(), Box<dyn Error>> {
-    println!(r#"{{"cniVersion": "1.0.0", "interfaces": [], "ips": [], "dns": {{}}}}"#);
+fn cmd_success(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+    ctx.output.write_output(
+        r#"{\"cniVersion\": \"1.0.0\", \"interfaces\": [], \"ips\": [], \"dns\": {}}"#,
+    )?;
     Ok(())
 }
 
