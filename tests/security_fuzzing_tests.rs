@@ -1,5 +1,4 @@
 use std::net::Ipv6Addr;
-use std::path::Path;
 
 // For now, just test that validation functions exist and can be called
 // This avoids the current compilation issue in driver_script.rs
@@ -31,9 +30,6 @@ mod security_fuzzing_tests {
             "test\n/bin/sh",
             "test\r\n/bin/sh",
         ];
-
-        // For now, just validate that we have identified dangerous patterns
-        assert!(malicious_patterns.len() > 0);
 
         // Test that these patterns contain dangerous sequences
         for pattern in &malicious_patterns {
