@@ -106,7 +106,7 @@ fn test_add_command_with_dns_dry_run() {
             // Parse JSON and verify DNS is preserved
             if let Ok(json) = serde_json::from_str::<Value>(output) {
                 json.get("dns").is_some()
-                    && json["dns"]["nameservers"].as_array().unwrap().len() > 0
+                    && !json["dns"]["nameservers"].as_array().unwrap().is_empty()
                     && json["dns"]["domain"] == "example.com"
             } else {
                 false

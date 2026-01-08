@@ -176,7 +176,7 @@ mod add_command_tests {
                 // Parse JSON and verify DNS is preserved
                 if let Ok(json) = serde_json::from_str::<Value>(output) {
                     json.get("dns").is_some()
-                        && json["dns"]["nameservers"].as_array().unwrap().len() > 0
+                        && !json["dns"]["nameservers"].as_array().unwrap().is_empty()
                         && json["dns"]["domain"] == "example.com"
                         && json["dns"]["search"].as_array().unwrap().len() == 2
                         && json["dns"]["options"].as_array().unwrap().len() == 1

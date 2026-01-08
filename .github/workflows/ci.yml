@@ -51,8 +51,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Linting (default features)
       run: cargo clippy -- -D warnings
-    - name: Linting (all features)
-      run: cargo clippy --all-features -- -D warnings
+    - name: Linting (all features, all targets)
+      run: cargo clippy --all-features --all-targets -- -D warnings
     - name: Linting (testing features)
       run: cargo clippy --features testing -- -D warnings
     - name: Linting benchmarks
