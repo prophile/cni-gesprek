@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::net::Ipv6Addr;
 
 use crate::cni::{CniConfig, CniDns};
 use crate::utils;
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct NetworkConfiguration {
     pub interface_name: String,
     pub target_ip: String,
-    pub gateway: Option<String>,
+    pub gateway: Option<Ipv6Addr>,
     pub master_interface: String,
     pub temporary_name: String,
 }
@@ -64,7 +65,7 @@ impl CniOrchestrator {
         master_interface: &str,
         interface_name: &str,
         driver_subnet: Option<(String, u8)>,
-        gateway: Option<String>,
+        gateway: Option<Ipv6Addr>,
     ) -> Result<NetworkConfiguration, Box<dyn Error>> {
         // Determine the CIDR to use
         let cidr_string = if let Some(cli_cidr) = cli_pod_cidr {
@@ -226,13 +227,13 @@ mod tests {
             "eth0",
             "veth0",
             None,
-            Some("2001:db8::1".to_string()),
+            Some("2001:db8::1".parse().unwrap()),
         )
         .unwrap();
 
         assert_eq!(result.interface_name, "veth0");
         assert_eq!(result.master_interface, "eth0");
-        assert_eq!(result.gateway, Some("2001:db8::1".to_string()));
+        assert_eq!(result.gateway, Some("2001:db8::1".parse().unwrap()));
         assert!(result.target_ip.starts_with("2001:db8:"));
         assert!(result.target_ip.ends_with("/64"));
         assert!(result.temporary_name.starts_with("ipvl"));
@@ -306,7 +307,7 @@ mod tests {
         let network_config = NetworkConfiguration {
             interface_name: "veth0".to_string(),
             target_ip: "2001:db8::42/64".to_string(),
-            gateway: Some("2001:db8::1".to_string()),
+            gateway: Some("2001:db8::1".parse().unwrap()),
             master_interface: "eth0".to_string(),
             temporary_name: "ipvl12345".to_string(),
         };

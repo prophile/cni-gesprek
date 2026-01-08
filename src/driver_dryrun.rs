@@ -1,5 +1,6 @@
-use crate::driver::NetworkDriver;
+use crate::driver::{Ipv6Subnet, NetworkDriver};
 use std::error::Error;
+use std::net::Ipv6Addr;
 use std::path::Path;
 
 pub struct DryRunDriver;
@@ -16,20 +17,21 @@ impl NetworkDriver for DryRunDriver {
         Ok("eth0".to_string())
     }
 
-    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<String>, Box<dyn Error>> {
+    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<Ipv6Addr>, Box<dyn Error>> {
         self.log(&format!(
             "Checking gateway on {}... (Simulated: fe80::1)",
             ifname
         ));
-        Ok(Some("fe80::1".to_string()))
+        Ok(Some("fe80::1".parse().unwrap()))
     }
 
-    fn get_interface_subnet(&self, ifname: &str) -> Result<(String, u8), Box<dyn Error>> {
+    fn get_interface_subnet(&self, ifname: &str) -> Result<Ipv6Subnet, Box<dyn Error>> {
         self.log(&format!(
             "Checking subnet on {}... (Simulated: 2001:db8::1/64)",
             ifname
         ));
-        Ok(("2001:db8::1".to_string(), 64))
+        let addr = "2001:db8::1".parse().unwrap();
+        Ipv6Subnet::new(addr, 64)
     }
 
     fn check_interface(&self, ifname: &str) -> Result<(), Box<dyn Error>> {
@@ -69,7 +71,7 @@ impl NetworkDriver for DryRunDriver {
         temp_ifname: &str,
         target_ifname: &str,
         ip_cidr: &str,
-        gateway: Option<&str>,
+        gateway: Option<&Ipv6Addr>,
     ) -> Result<(), Box<dyn Error>> {
         let ns = netns_path.display();
         self.log(&format!(

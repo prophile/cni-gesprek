@@ -1,6 +1,7 @@
-use crate::driver::NetworkDriver;
+use crate::driver::{Ipv6Subnet, NetworkDriver};
 use std::cell::RefCell;
 use std::error::Error;
+use std::net::Ipv6Addr;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -85,24 +86,25 @@ impl NetworkDriver for CommandCaptureDriver {
         Ok("test_eth0".to_string())
     }
 
-    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<String>, Box<dyn Error>> {
+    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<Ipv6Addr>, Box<dyn Error>> {
         self.capture_command(
             "ip",
             &["-6", "-j", "route", "show", "default", "dev", ifname],
             &format!("Get gateway for interface {}", ifname),
         );
         // Return a predictable test gateway
-        Ok(Some("fe80::1".to_string()))
+        Ok(Some("fe80::1".parse().unwrap()))
     }
 
-    fn get_interface_subnet(&self, ifname: &str) -> Result<(String, u8), Box<dyn Error>> {
+    fn get_interface_subnet(&self, ifname: &str) -> Result<Ipv6Subnet, Box<dyn Error>> {
         self.capture_command(
             "ip",
             &["-j", "-6", "addr", "show", "dev", ifname, "scope", "global"],
             &format!("Get subnet for interface {}", ifname),
         );
         // Return a predictable test subnet
-        Ok(("2001:db8::1".to_string(), 64))
+        let addr = "2001:db8::1".parse().unwrap();
+        Ipv6Subnet::new(addr, 64)
     }
 
     fn check_interface(&self, ifname: &str) -> Result<(), Box<dyn Error>> {
@@ -165,7 +167,7 @@ impl NetworkDriver for CommandCaptureDriver {
         temp_ifname: &str,
         target_ifname: &str,
         ip_cidr: &str,
-        gateway: Option<&str>,
+        gateway: Option<&Ipv6Addr>,
     ) -> Result<(), Box<dyn Error>> {
         // 1. Rename interface
         self.capture_nsenter_command(
@@ -206,6 +208,7 @@ impl NetworkDriver for CommandCaptureDriver {
 
         // 5. Add default gateway if provided
         if let Some(gw) = gateway {
+            let gw_str = gw.to_string();
             self.capture_nsenter_command(
                 netns_path,
                 &[
@@ -215,7 +218,7 @@ impl NetworkDriver for CommandCaptureDriver {
                     "add",
                     "default",
                     "via",
-                    gw,
+                    &gw_str,
                     "dev",
                     target_ifname,
                 ],

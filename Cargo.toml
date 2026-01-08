@@ -17,6 +17,7 @@ clap = { version = "4.4", features = ["derive"] }
 rand = "0.8"
 tempfile = "3.0"
 wait-timeout = "0.2"
+ipnet = "2.9"
 
 [[bin]]
 name = "cni-gesprek"

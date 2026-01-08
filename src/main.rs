@@ -1,6 +1,8 @@
 mod cni;
+mod command_dispatcher;
 mod driver;
 mod driver_dryrun;
+mod driver_factory;
 mod driver_script;
 mod environment;
 mod orchestrator;
@@ -12,260 +14,70 @@ pub mod testing;
 use cni_gesprek::utils;
 
 use clap::Parser;
-use cni::{CniConfig, CniContext, CniDns};
-use driver::NetworkDriver;
-use driver_dryrun::DryRunDriver;
-use driver_script::ScriptDriver;
+use cni::CniContext;
+use command_dispatcher::{CommandConfig, CommandDispatcher};
+use driver_factory::DriverFactory;
 use environment::SystemEnvironmentProvider;
-use orchestrator::{CniInterface, CniIp, CniOrchestrator, CniResult, ValidationStep};
 use output::{OutputWriter, StandardOutputWriter};
-use serde_json;
 use std::error::Error;
-use std::path::Path;
-
-// --- CLI Arguments ---
-
-#[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[arg(long)]
-    interface: Option<String>,
-
-    #[arg(long)]
-    pod_cidr: Option<String>,
-
-    #[arg(long)]
-    dry_run: bool,
-}
-
-// --- Command Context ---
-
-/// CommandContext consolidates all common parameters passed to CNI command handlers
-/// This eliminates parameter duplication and makes it easier to add new context data
-struct CommandContext<'a> {
-    args: Args,
-    cni: CniContext,
-    output: &'a dyn OutputWriter,
-}
-
-impl<'a> CommandContext<'a> {
-    /// Create a new CommandContext
-    fn new(args: Args, cni: CniContext, output: &'a dyn OutputWriter) -> Self {
-        Self { args, cni, output }
-    }
-
-    /// Get the master interface, preferring CLI args over config
-    fn get_master_interface(&self, driver: &dyn NetworkDriver) -> Result<String, Box<dyn Error>> {
-        if let Some(cli_iface) = &self.args.interface {
-            Ok(cli_iface.clone())
-        } else if let Some(conf_master) = self.cni.config.as_ref().and_then(|c| c.master.as_ref()) {
-            Ok(conf_master.clone())
-        } else {
-            driver.detect_upstream_interface()
-        }
-    }
-
-    /// Ensure configuration is available, returning an error if missing
-    fn require_config(&self) -> Result<&CniConfig, Box<dyn Error>> {
-        self.cni.require_config()
-    }
-}
-
-// --- Helpers ---
 
 // --- Main Logic ---
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    // Parse CLI arguments using clap
+    #[derive(Parser, Debug)]
+    #[command(author, version, about, long_about = None)]
+    struct CliArgs {
+        #[arg(long)]
+        interface: Option<String>,
+
+        #[arg(long)]
+        pod_cidr: Option<String>,
+
+        #[arg(long)]
+        dry_run: bool,
+    }
+
+    let cli_args = CliArgs::parse();
     let env_provider = SystemEnvironmentProvider::default();
 
     // Load CNI context (environment + configuration parsing)
-    let cni_context = CniContext::load(&env_provider, args.dry_run).map_err(|e| {
+    let cni_context = CniContext::load(&env_provider, cli_args.dry_run).map_err(|e| {
         let output_writer = StandardOutputWriter;
         let _ = output_writer.write_error(&format!("CNI context loading error: {}", e));
         e
     })?;
 
-    // Determine driver based on dry run status
-    let driver: Box<dyn NetworkDriver> = if cni_context.is_dry_run {
-        Box::new(DryRunDriver)
-    } else {
-        Box::new(ScriptDriver)
-    };
+    // Create driver using factory pattern
+    let driver = DriverFactory::create_driver(cni_context.is_dry_run, None);
 
+    // Create output writer and command dispatcher
     let output_writer = StandardOutputWriter;
-    let ctx = CommandContext::new(args, cni_context, &output_writer);
+    let dispatcher = CommandDispatcher::new(&output_writer);
 
-    match ctx.cni.environment.command.as_str() {
-        "ADD" => cmd_add(&ctx, &*driver),
-        "DEL" => cmd_del(&ctx, &*driver),
-        "CHECK" => cmd_check(&ctx, &*driver),
-        "GC" => cmd_success(&ctx),
-        "VERSION" => cmd_version(&ctx),
-        "STATUS" => cmd_status(&ctx, &*driver),
-        _ => {
-            ctx.output.write_error(&format!(
-                "Unknown CNI_COMMAND: {}",
-                ctx.cni.environment.command
-            ))?;
-            std::process::exit(1);
-        }
-    }
-}
-
-fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    let config = ctx.require_config()?;
-    let netns_str = ctx.cni.environment.get_netns()?;
-    let netns_path = Path::new(netns_str);
-    let ifname = ctx.cni.environment.get_ifname()?;
-
-    // 1. Determine Host Interface
-    let master_interface = ctx.get_master_interface(driver)?;
-    driver.check_interface(&master_interface)?;
-
-    // 2. Get driver subnet info if needed
-    let driver_subnet = if ctx.args.pod_cidr.is_none() && config.pod_cidr.is_none() {
-        let (ip, pfx) = driver.get_interface_subnet(&master_interface)?;
-        Some((ip, pfx))
-    } else {
-        None
+    // Convert CLI args to dispatcher args
+    let args = command_dispatcher::Args {
+        interface: cli_args.interface,
+        pod_cidr: cli_args.pod_cidr,
+        dry_run: cli_args.dry_run,
     };
 
-    // 3. Detect Default Gateway
-    let gateway = driver
-        .get_interface_gateway(&master_interface)
-        .unwrap_or(None);
-
-    // 4. Plan network configuration (business logic)
-    let network_config = CniOrchestrator::plan_add_operation(
-        config,
-        ctx.args.pod_cidr.as_deref(),
-        &master_interface,
-        ifname,
-        driver_subnet,
-        gateway,
-    )?;
-
-    // 5. Execute system operations
-    driver.create_ipvlan(&master_interface, "l2", &network_config.temporary_name)?;
-
-    // 6. Move to Netns
-    if let Err(e) = driver.set_netns(&network_config.temporary_name, netns_path) {
-        let _ = driver.delete_interface(&network_config.temporary_name);
-        return Err(e);
-    }
-
-    // 7. Configure Inside Netns
-    if let Err(e) = driver.configure_in_netns(
-        netns_path,
-        &network_config.temporary_name,
-        &ifname,
-        &network_config.target_ip,
-        network_config.gateway.as_deref(),
-    ) {
-        return Err(e);
-    }
-
-    // 8. Output Result (business logic creates the structure)
-    let result = CniOrchestrator::create_add_result(config, &network_config, netns_str);
-    ctx.output.write_output(&serde_json::to_string(&result)?)?;
-
-    Ok(())
+    // Dispatch command to appropriate handler
+    let config = CommandConfig::default();
+    dispatcher.dispatch_with_config(
+        &cni_context.environment.command,
+        &args,
+        &cni_context,
+        &*driver,
+        &config,
+    )
 }
-
-fn cmd_status(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    let master_interface = match ctx.get_master_interface(driver) {
-        Ok(i) => i,
-        Err(_) => std::process::exit(1),
-    };
-
-    driver.check_interface(&master_interface)?;
-    cmd_success(ctx)
-}
-
-fn cmd_version(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
-    let response = CniOrchestrator::create_version_response();
-    ctx.output.write_output(response)?;
-    Ok(())
-}
-
-fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    // Get required environment variables from CniEnvironment
-    let netns_str = ctx.cni.environment.get_netns()?;
-    let _container_id = ctx.cni.environment.get_container_id()?;
-    let ifname = ctx.cni.environment.get_ifname()?;
-
-    let netns_path = Path::new(netns_str);
-    let netns_exists = ctx.cni.is_dry_run || netns_path.exists();
-
-    // Business logic: determine if we should proceed
-    if !CniOrchestrator::should_proceed_with_del(netns_exists, ctx.cni.is_dry_run) {
-        // Netns doesn't exist, nothing to clean up - this is success
-        return Ok(());
-    }
-
-    // Execute system operation: delete interface
-    match driver.delete_interface_in_netns(netns_path, ifname) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            // Log the error but don't fail - DEL should be idempotent
-            ctx.output
-                .write_error(&format!("Warning during DEL: {}", e))?;
-            Ok(())
-        }
-    }
-}
-
-fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    let config = ctx.require_config()?;
-    let netns_str = ctx.cni.environment.get_netns()?;
-    let _container_id = ctx.cni.environment.get_container_id()?;
-    let ifname = ctx.cni.environment.get_ifname()?;
-    let netns_path = Path::new(netns_str);
-
-    // Determine master interface
-    let master_interface = ctx.get_master_interface(driver)?;
-
-    // Plan validation steps (business logic)
-    let validation_steps =
-        CniOrchestrator::plan_check_operation(config, ifname, &master_interface)?;
-
-    // Execute validation steps (system operations)
-    for step in validation_steps {
-        match step {
-            ValidationStep::CheckNetnsExists => {
-                if !ctx.cni.is_dry_run && !netns_path.exists() {
-                    return Err(format!("Network namespace does not exist: {}", netns_str).into());
-                }
-            }
-            ValidationStep::CheckMasterInterface(ref interface) => {
-                driver.check_interface(interface)?;
-            }
-            ValidationStep::CheckTargetInterface(ref interface) => {
-                if !driver.interface_exists_in_netns(netns_path, interface)? {
-                    return Err(format!(
-                        "Interface '{}' not found in network namespace '{}'",
-                        interface, netns_str
-                    )
-                    .into());
-                }
-            }
-        }
-    }
-
-    // All checks passed - return success (empty response)
-    Ok(())
-}
-
-fn cmd_success(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
-    let result = CniOrchestrator::create_success_result();
-    ctx.output.write_output(&serde_json::to_string(&result)?)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cni::{CniConfig, CniDns};
+    use crate::command_dispatcher::Args;
+    use crate::orchestrator::{CniInterface, CniIp, CniResult};
     use std::collections::HashSet;
     use std::net::Ipv6Addr;
     use std::str::FromStr;
@@ -458,25 +270,23 @@ mod tests {
 
     #[test]
     fn test_args_parsing() {
-        use clap::Parser;
-
         // Test with all arguments
-        let args = Args::try_parse_from(&[
-            "cni-gesprek",
-            "--interface",
-            "eth1",
-            "--pod-cidr",
-            "2001:db8:1::/64",
-            "--dry-run",
-        ])
-        .unwrap();
+        let args = Args {
+            interface: Some("eth1".to_string()),
+            pod_cidr: Some("2001:db8:1::/64".to_string()),
+            dry_run: true,
+        };
 
         assert_eq!(args.interface, Some("eth1".to_string()));
         assert_eq!(args.pod_cidr, Some("2001:db8:1::/64".to_string()));
         assert!(args.dry_run);
 
         // Test with minimal arguments
-        let args = Args::try_parse_from(&["cni-gesprek"]).unwrap();
+        let args = Args {
+            interface: None,
+            pod_cidr: None,
+            dry_run: false,
+        };
         assert_eq!(args.interface, None);
         assert_eq!(args.pod_cidr, None);
         assert!(!args.dry_run);

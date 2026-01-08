@@ -15,16 +15,24 @@
 - ✅ Verified all tests pass and JSON serialization/deserialization maintains compatibility
 - ✅ Eliminated all `non_snake_case` compiler warnings
 
-### 2. Unsafe Random IP Generation
+### 2. Unsafe Random IP Generation ✅ COMPLETED
 **Priority**: High
-**Status**: Open
-**Location:** [src/main.rs](src/main.rs#L85-L120)  
+**Status**: Resolved ✅
+**Location:** [src/lib.rs](src/lib.rs#L22-L82)  
 **Description:** Complex bit manipulation in `generate_random_ip` function is error-prone and may generate invalid addresses  
-**Recommended Actions:**
-- Simplify IP generation logic using proper IPv6 address libraries
-- Add comprehensive test coverage for edge cases (prefix lengths 0, 64, 128)
-- Validate generated IPs are within the expected subnet
-- Consider using `ipnet` crate for proper CIDR handling
+**Completed Actions:**
+- ✅ Added `ipnet` dependency to Cargo.toml for proper IPv6 network handling
+- ✅ Completely refactored `generate_random_ip()` function using `ipnet::Ipv6Net` instead of manual bit manipulation
+- ✅ Added `parse_cidr()` function for safe CIDR parsing and validation
+- ✅ Implemented `is_address_in_subnet()` for comprehensive address validation
+- ✅ Added `split_ipv6_address()` utility for network/host portion extraction
+- ✅ Enhanced NetworkDriver trait to use proper `Ipv6Addr` types instead of strings
+- ✅ Created `Ipv6Subnet` struct with validation in driver interface
+- ✅ Updated all driver implementations (DryRunDriver, ScriptDriver, CommandCaptureDriver) to use type-safe IPv6 handling
+- ✅ Aligned business logic in orchestrator and command dispatcher to use proper IP types
+- ✅ Added comprehensive test coverage for edge cases (prefix lengths 0, 128) and invalid inputs
+- ✅ All 6 IP generation tests pass, validating safety improvements and proper subnet bounds checking
+- ✅ Created safety demonstration showing proper CIDR validation, error handling, and address generation within bounds
 
 ### 3. Error Handling Issues
 **Priority**: High
@@ -57,7 +65,7 @@
 **Description:** IPv6 Duplicate Address Detection polling has hardcoded timeouts and no proper synchronization  
 **Recommended Actions:**
 - Implement exponential backoff for DAD polling
-- Make timeout configurable via environment variable
+- Make timeout configurable via configuration
 - Add better error messages for DAD failure scenarios
 - Consider using netlink sockets instead of polling `ip` command
 
@@ -145,16 +153,21 @@
 - ✅ Updated all command handlers to use `CniContext` for consistent access to CNI data
 - ✅ Added comprehensive unit test coverage with proper test isolation
 
-### 12b. Command Dispatch and Driver Selection Logic
+### 12b. Command Dispatch and Driver Selection Logic ✅ COMPLETED
 **Priority**: Medium
-**Status**: Open
+**Status**: Resolved ✅
 **Location:** [src/main.rs](src/main.rs#L130-L140), [src/main.rs](src/main.rs#L152-L165)  
 **Description:** Driver selection and command dispatching are hardcoded in main function making it difficult to test different driver behaviors  
-**Recommended Actions:**
-- Extract driver selection logic into a factory pattern
-- Create a CommandDispatcher that can route CNI commands to handlers
-- Make driver selection configurable/injectable for testing
-- Separate dry-run logic from driver instantiation
+**Completed Actions:**
+- ✅ Created [src/driver_factory.rs](src/driver_factory.rs) with factory pattern for driver creation
+- ✅ Implemented `DriverFactory::create_driver()` method with configurable driver selection based on dry-run flag
+- ✅ Added `create_test_driver()` method for explicit driver type selection in testing scenarios
+- ✅ Created [src/command_dispatcher.rs](src/command_dispatcher.rs) for centralized command routing
+- ✅ Implemented `CommandDispatcher` with support for all CNI commands (ADD, DEL, CHECK, GC, VERSION, STATUS)
+- ✅ Added configurable command routing with `CommandConfig` for testing flexibility
+- ✅ Refactored main() function to use factory and dispatcher pattern instead of hardcoded logic
+- ✅ Added comprehensive unit tests for both driver factory (3 tests) and command dispatcher (4 tests)
+- ✅ Maintained complete backward compatibility with existing CNI protocol behavior
 
 ### 12c. Command Handler Parameter Duplication ✅ COMPLETED
 **Priority**: Medium

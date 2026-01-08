@@ -1,5 +1,6 @@
-use crate::driver::NetworkDriver;
+use crate::driver::{Ipv6Subnet, NetworkDriver};
 use std::error::Error;
+use std::net::Ipv6Addr;
 use std::path::Path;
 use std::process::Command;
 use std::thread;
@@ -51,7 +52,7 @@ impl NetworkDriver for ScriptDriver {
         Err("Could not infer default interface from routing table".into())
     }
 
-    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<String>, Box<dyn Error>> {
+    fn get_interface_gateway(&self, ifname: &str) -> Result<Option<Ipv6Addr>, Box<dyn Error>> {
         let output = Self::run_cmd(
             "ip",
             &["-6", "-j", "route", "show", "default", "dev", ifname],
@@ -60,13 +61,16 @@ impl NetworkDriver for ScriptDriver {
 
         if let Some(route) = routes.first() {
             if let Some(gateway) = route.get("gateway").and_then(|v| v.as_str()) {
-                return Ok(Some(gateway.to_string()));
+                let addr: Ipv6Addr = gateway
+                    .parse()
+                    .map_err(|e| format!("Invalid IPv6 gateway address '{}': {}", gateway, e))?;
+                return Ok(Some(addr));
             }
         }
         Ok(None)
     }
 
-    fn get_interface_subnet(&self, ifname: &str) -> Result<(String, u8), Box<dyn Error>> {
+    fn get_interface_subnet(&self, ifname: &str) -> Result<Ipv6Subnet, Box<dyn Error>> {
         let output = Self::run_cmd(
             "ip",
             &["-j", "-6", "addr", "show", "dev", ifname, "scope", "global"],
@@ -79,8 +83,11 @@ impl NetworkDriver for ScriptDriver {
                     let local = info.get("local").and_then(|v| v.as_str());
                     let prefix = info.get("prefixlen").and_then(|v| v.as_u64());
 
-                    if let (Some(ip), Some(pfx)) = (local, prefix) {
-                        return Ok((ip.to_string(), pfx as u8));
+                    if let (Some(ip_str), Some(pfx)) = (local, prefix) {
+                        let addr: Ipv6Addr = ip_str
+                            .parse()
+                            .map_err(|e| format!("Invalid IPv6 address '{}': {}", ip_str, e))?;
+                        return Ipv6Subnet::new(addr, pfx as u8);
                     }
                 }
             }
@@ -128,7 +135,7 @@ impl NetworkDriver for ScriptDriver {
         temp_ifname: &str,
         target_ifname: &str,
         ip_cidr: &str,
-        gateway: Option<&str>,
+        gateway: Option<&Ipv6Addr>,
     ) -> Result<(), Box<dyn Error>> {
         let netns_str = netns_path.to_str().ok_or("Invalid UTF-8 in netns path")?;
 
@@ -181,6 +188,7 @@ impl NetworkDriver for ScriptDriver {
 
         // 5. Add Gateway
         if let Some(gw) = gateway {
+            let gw_str = gw.to_string();
             let args = ns_args(&[
                 "ip",
                 "-6",
@@ -188,7 +196,7 @@ impl NetworkDriver for ScriptDriver {
                 "add",
                 "default",
                 "via",
-                gw,
+                &gw_str,
                 "dev",
                 target_ifname,
             ]);
