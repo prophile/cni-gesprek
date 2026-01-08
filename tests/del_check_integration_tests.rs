@@ -2,6 +2,10 @@ use assert_cmd::Command;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+fn get_binary_path() -> &'static str {
+    env!("CARGO_BIN_EXE_cni-gesprek")
+}
+
 #[test]
 fn test_del_command_successful_cleanup() {
     let mut cni_config_file = NamedTempFile::new().unwrap();
@@ -22,7 +26,7 @@ fn test_del_command_successful_cleanup() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "DEL")
         .env("CNI_CONTAINERID", "test-container-del-123")
         .env("CNI_NETNS", "/proc/1234/ns/net")
@@ -58,7 +62,7 @@ fn test_del_command_nonexistent_interface() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "DEL")
         .env("CNI_CONTAINERID", "nonexistent-container-123")
         .env("CNI_NETNS", "/proc/9999/ns/net")
@@ -91,7 +95,7 @@ fn test_del_command_missing_containerid() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "DEL")
         // CNI_CONTAINERID is missing
         .env("CNI_NETNS", "/proc/1234/ns/net")
@@ -123,7 +127,7 @@ fn test_check_command_valid_configuration() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
         .env("CNI_CONTAINERID", "test-container-check-123")
         .env("CNI_NETNS", "/proc/self/ns/net")
@@ -160,7 +164,7 @@ fn test_check_command_missing_interface() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
         .env("CNI_CONTAINERID", "missing-interface-container")
         .env("CNI_NETNS", "/proc/9999/ns/net")
@@ -191,7 +195,7 @@ fn test_check_command_invalid_cni_version() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
         .env("CNI_CONTAINERID", "test-version-check")
         .env("CNI_NETNS", "/proc/1234/ns/net")
@@ -218,7 +222,7 @@ fn test_check_command_missing_required_env_vars() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
         // Missing CNI_CONTAINERID, CNI_NETNS, CNI_IFNAME
         .env("CNI_PATH", "/usr/lib/cni")
@@ -249,7 +253,7 @@ fn test_del_and_check_integration_scenario() {
 
     // First, try CHECK on non-existent setup - should fail
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut check_cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut check_cmd = Command::new(get_binary_path());
     check_cmd
         .env("CNI_COMMAND", "CHECK")
         .env("CNI_CONTAINERID", "integration-test-container")
@@ -264,7 +268,7 @@ fn test_del_and_check_integration_scenario() {
     // Then run DEL on non-existent setup - should succeed (idempotent)
     let config_contents2 = std::fs::read_to_string(cni_config_file.path()).unwrap();
 
-    let mut del_cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut del_cmd = Command::new(get_binary_path());
     del_cmd
         .env("CNI_COMMAND", "DEL")
         .env("CNI_CONTAINERID", "integration-test-container")
@@ -298,7 +302,7 @@ fn test_del_command_with_dry_run() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "DEL")
         .env("CNI_CONTAINERID", "test-container-del-dry")
         .env("CNI_NETNS", "/proc/1234/ns/net")
@@ -334,7 +338,7 @@ fn test_check_command_with_dry_run() {
     .unwrap();
 
     let config_contents = std::fs::read_to_string(cni_config_file.path()).unwrap();
-    let mut cmd = Command::cargo_bin("cni-gesprek").unwrap();
+    let mut cmd = Command::new(get_binary_path());
     cmd.env("CNI_COMMAND", "CHECK")
         .env("CNI_CONTAINERID", "test-container-check-dry")
         .env("CNI_NETNS", "/proc/1234/ns/net")

@@ -395,7 +395,6 @@ mod tests {
 
     #[cfg(feature = "testing")]
     mod integration_helpers {
-        use super::*;
         use crate::testing::*;
 
         #[test]
@@ -404,7 +403,7 @@ mod tests {
 
             // Test that captured commands can be analyzed
             // This would test the integration between main logic and testing framework
-            let captured = driver.get_captured_commands();
+            let captured = driver.captured_commands();
             assert!(captured.is_empty()); // Should start empty
         }
 
