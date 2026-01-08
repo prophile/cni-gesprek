@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cni-gesprek
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cni-gesprek
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes/status"]
+  verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cni-gesprek
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cni-gesprek
+subjects:
+- kind: ServiceAccount
+  name: cni-gesprek
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cni-gesprek
+  namespace: kube-system
+  labels:
+    app: cni-gesprek
+    tier: node
+spec:
+  selector:
+    matchLabels:
+      app: cni-gesprek
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: cni-gesprek
+        tier: node
+    spec:
+      serviceAccountName: cni-gesprek
+      hostNetwork: true
+      hostPID: true
+      priorityClassName: system-node-critical
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      - key: CriticalAddonsOnly
+        operator: Exists
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: install-cni
+        image: cni-gesprek:latest
+        imagePullPolicy: Always
+        command: ["/install-cni.sh"]
+        env:
+        - name: CNI_NETWORK_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              name: cni-gesprek-config
+              key: cni_network_config
+        - name: CNI_NET_DIR
+          value: "/etc/cni/net.d"
+        - name: CNI_BIN_DIR
+          value: "/opt/cni/bin"
+        - name: CNI_CONF_NAME
+          value: "10-cni-gesprek.conflist"
+        - name: SLEEP
+          value: "false"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: cni-bin-dir
+          mountPath: /opt/cni/bin
+        - name: cni-net-dir
+          mountPath: /etc/cni/net.d
+        - name: host-local-net-dir
+          mountPath: /var/lib/cni/networks
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/uninstall-cni.sh"]
+      volumes:
+      - name: cni-bin-dir
+        hostPath:
+          path: /opt/cni/bin
+          type: DirectoryOrCreate
+      - name: cni-net-dir
+        hostPath:
+          path: /etc/cni/net.d
+          type: DirectoryOrCreate
+      - name: host-local-net-dir
+        hostPath:
+          path: /var/lib/cni/networks
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cni-gesprek-config
+  namespace: kube-system
+data:
+  cni_network_config: |
+    {
+      "cniVersion": "1.0.0",
+      "name": "cni-gesprek",
+      "type": "cni-gesprek",
+      "capabilities": {
+        "ips": true,
+        "portMappings": false
+      },
+      "master": "",
+      "mode": "l2",
+      "mtu": 1500,
+      "pod_cidr": "2001:db8:42::/48",
+      "ipam": {
+        "type": "host-local",
+        "dataDir": "/var/lib/cni/networks"
+      },
+      "dns": {
+        "nameservers": ["2001:4860:4860::8888", "2001:4860:4860::8844"]
+      }
+    }

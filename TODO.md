@@ -283,7 +283,47 @@ This addresses the CI gaps that allowed the test compilation issues in TODO item
 - Benchmark compilation failures
 - Feature combination compatibility issues
 
----
+
+## 16. Kubernetes Deployment Setup
+
+**Priority:** Medium
+**Status:** Done
+**Description:** Build components needed to actually deploy the CNI plugin in a Kubernetes cluster.
+**Definition of Done:**
+- [x] Create DaemonSet YAML for deploying CNI plugin
+- [x] Write installation scripts for CNI binaries and config files
+- [x] Write Dockerfile for building CNI plugin image
+- [x] Document deployment steps in README.md
+- [x] Build Docker image as part of CI/CD pipeline
+
+**Implementation Notes:**
+Complete Kubernetes deployment infrastructure has been established:
+
+**Kubernetes Deployment Components:**
+- Created comprehensive DaemonSet configuration with proper RBAC, tolerations, and security context
+- Implemented CNI configuration via ConfigMap with IPv6-optimized defaults
+- Added installation and uninstallation scripts with validation and error handling
+- Created automated deployment script with customizable parameters
+
+**Container Images:**
+- Built both Ubuntu-based (standard) and Alpine-based (minimal) Docker images
+- Implemented multi-architecture support (amd64/arm64) for broader compatibility
+- Added proper image labeling and metadata following OCI standards
+- Created efficient Docker builds with proper layer caching and .dockerignore
+
+**CI/CD Integration:**
+- Added comprehensive Docker build and push pipeline to GitHub Actions
+- Implemented security scanning with Trivy for vulnerability detection
+- Added multi-platform builds with proper dependency management
+- Created both Docker Hub and GitHub Container Registry publishing
+
+**Documentation and Tooling:**
+- Added comprehensive Kubernetes deployment section to README.md
+- Created local development scripts for Docker builds and testing
+- Extended Makefile with Docker-related targets for development workflow
+- Documented troubleshooting guide and verification steps
+
+The deployment system supports production-ready CNI plugin installation with proper security, observability, and operational considerations.
 
 ---
 

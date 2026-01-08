@@ -1,0 +1,52 @@
+# Docker ignore file for CNI-Gesprek
+# This file specifies which files and directories should be excluded 
+# when building the Docker image
+
+# Build artifacts
+target/
+Cargo.lock
+
+# Development files
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Documentation and examples that aren't needed in the image
+docs/
+examples/
+benches/
+
+# Test files
+tests/
+
+# CI/CD files
+.github/
+
+# Coverage reports
+coverage/
+tarpaulin.toml
+*.profraw
+*.profdata
+
+# Local development files
+.env
+.env.local
+*.log
+*.tmp
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Rust specific
+**/*.rs.bk
+
+# Don't exclude scripts needed for Docker operations
+!docker/install-cni.sh
+!docker/uninstall-cni.sh

@@ -158,7 +158,7 @@ jobs:
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, fmt, clippy, compile-checks, build, coverage]
+    needs: [test, fmt, clippy, compile-checks, build, coverage, docker]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -191,3 +191,98 @@ jobs:
       with:
         files: cni-gesprek-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
         generate_release_notes: true
+
+  docker:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test, fmt, clippy]
+    steps:
+    - uses: actions/checkout@v6
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Log in to GitHub Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: |
+          cni-gesprek
+          ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=sha,prefix={{branch}}-
+        labels: |
+          org.opencontainers.image.title=CNI-Gesprek
+          org.opencontainers.image.description=IPv6-only CNI plugin with cryptographically random IP addresses
+          org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          org.opencontainers.image.vendor=CNI-Gesprek Team
+    
+    - name: Build and push Ubuntu-based image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./docker/Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Build and push Alpine-based image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./docker/Dockerfile.alpine
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: |
+          cni-gesprek:alpine-${{ steps.meta.outputs.version }}
+          ghcr.io/${{ github.repository }}:alpine-${{ steps.meta.outputs.version }}
+          ${{ github.ref == 'refs/heads/trunk' && 'cni-gesprek:alpine-latest' || '' }}
+          ${{ github.ref == 'refs/heads/trunk' && format('ghcr.io/{0}:alpine-latest', github.repository) || '' }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha,scope=alpine
+        cache-to: type=gha,mode=max,scope=alpine
+        build-args: |
+          RUST_VERSION=1.75
+          UBUNTU_VERSION=22.04
+
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: github.event_name != 'pull_request'
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        format: sarif
+        output: trivy-results.sarif
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: trivy-results.sarif

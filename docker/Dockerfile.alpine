@@ -1,0 +1,55 @@
+# Build arguments
+ARG RUST_VERSION=1.75
+ARG UBUNTU_VERSION=22.04
+
+# Multi-stage build for CNI-Gesprek - Alpine variant
+FROM rust:${RUST_VERSION}-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    musl-dev \
+    gcc \
+    libc-dev
+
+WORKDIR /usr/src/app
+
+# Copy the entire source code
+COPY . .
+
+# Build the release binary with static linking
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+# Runtime stage - minimal Alpine image
+FROM alpine:3.18
+
+# Install minimal runtime dependencies
+RUN apk add --no-cache \
+    iproute2 \
+    jq \
+    iputils \
+    ca-certificates
+
+# Create a non-root user
+RUN addgroup -S cni && adduser -S cni -G cni
+
+# Copy the statically linked binary from builder stage
+COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/cni-gesprek /usr/local/bin/cni-gesprek
+
+# Copy installation scripts
+COPY docker/install-cni.sh /install-cni.sh
+COPY docker/uninstall-cni.sh /uninstall-cni.sh
+
+# Make scripts executable
+RUN chmod +x /install-cni.sh /uninstall-cni.sh /usr/local/bin/cni-gesprek
+
+# Verify the binary works
+RUN /usr/local/bin/cni-gesprek --help || true
+
+# Set labels for better maintainability
+LABEL maintainer="CNI-Gesprek Team" \
+      version="1.0.0" \
+      description="IPv6-only CNI plugin with cryptographically random IP addresses (Alpine)" \
+      source="https://github.com/prophile/cni-gesprek"
+
+# Default command runs the installation script
+CMD ["/install-cni.sh"]

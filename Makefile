@@ -1,7 +1,7 @@
 # CNI Gesprek Makefile
 # Development and testing automation
 
-.PHONY: help build test coverage coverage-report coverage-check clean
+.PHONY: help build test coverage coverage-report coverage-check clean docker docker-build docker-push docker-test install-deps
 
 # Default target
 help:
@@ -12,6 +12,9 @@ help:
 	@echo "coverage       - Generate code coverage report"
 	@echo "coverage-report- Open coverage report in browser"
 	@echo "coverage-check - Check if coverage meets threshold"
+	@echo "docker         - Build Docker images locally"
+	@echo "docker-build   - Build and push Docker images"
+	@echo "docker-test    - Test Docker images"
 	@echo "clean          - Clean build artifacts and coverage reports"
 
 # Build the project
@@ -75,3 +78,20 @@ install-deps:
 	else \
 		echo "cargo-tarpaulin already installed"; \
 	fi
+
+# Docker targets
+docker:
+	@echo "Building Docker images locally..."
+	./scripts/build-docker.sh
+
+docker-build:
+	@echo "Building and pushing Docker images..."
+	PUSH=true ./scripts/build-docker.sh
+
+docker-test: docker
+	@echo "Testing Docker images..."
+	@echo "Testing Ubuntu-based image..."
+	docker run --rm cni-gesprek:latest /usr/local/bin/cni-gesprek --help
+	@echo "Testing Alpine-based image..."
+	docker run --rm cni-gesprek:alpine-latest /usr/local/bin/cni-gesprek --help
+	@echo "✅ Docker images tested successfully!"
