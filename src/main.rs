@@ -3,6 +3,7 @@ mod driver;
 mod driver_dryrun;
 mod driver_script;
 mod environment;
+mod orchestrator;
 mod output;
 
 #[cfg(any(test, feature = "testing"))]
@@ -16,36 +17,11 @@ use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
 use driver_script::ScriptDriver;
 use environment::SystemEnvironmentProvider;
+use orchestrator::{CniInterface, CniIp, CniOrchestrator, CniResult, ValidationStep};
 use output::{OutputWriter, StandardOutputWriter};
-use serde::{Deserialize, Serialize};
+use serde_json;
 use std::error::Error;
 use std::path::Path;
-
-// --- CNI Result Structures ---
-
-#[derive(Serialize, Deserialize, Debug)]
-struct CniResult {
-    #[serde(rename = "cniVersion")]
-    cni_version: String,
-    interfaces: Vec<CniInterface>,
-    ips: Vec<CniIp>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dns: Option<CniDns>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct CniInterface {
-    name: String,
-    mac: String,
-    sandbox: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct CniIp {
-    version: String,
-    address: String,
-    interface: usize,
-}
 
 // --- CLI Arguments ---
 
@@ -147,14 +123,12 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
     let master_interface = ctx.get_master_interface(driver)?;
     driver.check_interface(&master_interface)?;
 
-    // 2. Determine Subnet (CIDR)
-    let cidr_string = if let Some(cli_cidr) = &ctx.args.pod_cidr {
-        cli_cidr.clone()
-    } else if let Some(conf_cidr) = &config.pod_cidr {
-        conf_cidr.clone()
-    } else {
+    // 2. Get driver subnet info if needed
+    let driver_subnet = if ctx.args.pod_cidr.is_none() && config.pod_cidr.is_none() {
         let (ip, pfx) = driver.get_interface_subnet(&master_interface)?;
-        format!("{}/{}", ip, pfx)
+        Some((ip, pfx))
+    } else {
+        None
     };
 
     // 3. Detect Default Gateway
@@ -162,54 +136,38 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
         .get_interface_gateway(&master_interface)
         .unwrap_or(None);
 
-    // 4. Generate Random IP
-    let target_ip_cidr = utils::generate_random_ip(&cidr_string)?;
+    // 4. Plan network configuration (business logic)
+    let network_config = CniOrchestrator::plan_add_operation(
+        config,
+        ctx.args.pod_cidr.as_deref(),
+        &master_interface,
+        ifname,
+        driver_subnet,
+        gateway,
+    )?;
 
-    // 5. Create IPvlan (Host Side)
-    let random_suffix: String = (0..8)
-        .map(|_| {
-            let idx = rand::random::<usize>() % 16;
-            format!("{:x}", idx)
-        })
-        .collect();
-    let temp_name = format!("ipvl{}", random_suffix);
-
-    driver.create_ipvlan(&master_interface, "l2", &temp_name)?;
+    // 5. Execute system operations
+    driver.create_ipvlan(&master_interface, "l2", &network_config.temporary_name)?;
 
     // 6. Move to Netns
-    if let Err(e) = driver.set_netns(&temp_name, netns_path) {
-        let _ = driver.delete_interface(&temp_name);
+    if let Err(e) = driver.set_netns(&network_config.temporary_name, netns_path) {
+        let _ = driver.delete_interface(&network_config.temporary_name);
         return Err(e);
     }
 
     // 7. Configure Inside Netns
     if let Err(e) = driver.configure_in_netns(
         netns_path,
-        &temp_name,
+        &network_config.temporary_name,
         &ifname,
-        &target_ip_cidr,
-        gateway.as_deref(),
+        &network_config.target_ip,
+        network_config.gateway.as_deref(),
     ) {
         return Err(e);
     }
 
-    // 8. Output Result
-    let result = CniResult {
-        cni_version: config.cni_version.clone(),
-        interfaces: vec![CniInterface {
-            name: ifname.to_string(),
-            mac: "".to_string(),
-            sandbox: netns_str.to_string(),
-        }],
-        ips: vec![CniIp {
-            version: "6".to_string(),
-            address: target_ip_cidr,
-            interface: 0,
-        }],
-        // UPDATED: Pass through the DNS config provided in the JSON input
-        dns: config.dns.clone(),
-    };
-
+    // 8. Output Result (business logic creates the structure)
+    let result = CniOrchestrator::create_add_result(config, &network_config, netns_str);
     ctx.output.write_output(&serde_json::to_string(&result)?)?;
 
     Ok(())
@@ -226,33 +184,29 @@ fn cmd_status(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Bo
 }
 
 fn cmd_version(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
-    ctx.output
-        .write_output(r#"{\"cniVersion\": \"1.0.0\", \"supportedVersions\": [\"1.0.0\"]}"#)?;
+    let response = CniOrchestrator::create_version_response();
+    ctx.output.write_output(response)?;
     Ok(())
 }
 
 fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    // DEL command should be idempotent - succeed even if interface doesn't exist
-
     // Get required environment variables from CniEnvironment
     let netns_str = ctx.cni.environment.get_netns()?;
     let _container_id = ctx.cni.environment.get_container_id()?;
     let ifname = ctx.cni.environment.get_ifname()?;
 
     let netns_path = Path::new(netns_str);
-    // Check if the network namespace exists at all (skip in dry-run mode)
-    if !ctx.cni.is_dry_run && !netns_path.exists() {
+    let netns_exists = ctx.cni.is_dry_run || netns_path.exists();
+
+    // Business logic: determine if we should proceed
+    if !CniOrchestrator::should_proceed_with_del(netns_exists, ctx.cni.is_dry_run) {
         // Netns doesn't exist, nothing to clean up - this is success
         return Ok(());
     }
 
-    // Try to delete the interface from inside the netns
-    // This should be idempotent - if interface doesn't exist, just succeed
+    // Execute system operation: delete interface
     match driver.delete_interface_in_netns(netns_path, ifname) {
-        Ok(()) => {
-            // Successfully deleted or interface didn't exist
-            Ok(())
-        }
+        Ok(()) => Ok(()),
         Err(e) => {
             // Log the error but don't fail - DEL should be idempotent
             ctx.output
@@ -263,40 +217,40 @@ fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
 }
 
 fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
-    // CHECK command validates that the configuration is still valid
-
     let config = ctx.require_config()?;
-
-    // Validate CNI version
-    if config.cni_version != "1.0.0" {
-        return Err(format!("Unsupported CNI version: {}", config.cni_version).into());
-    }
-
-    // Get required environment variables from CniEnvironment
     let netns_str = ctx.cni.environment.get_netns()?;
     let _container_id = ctx.cni.environment.get_container_id()?;
     let ifname = ctx.cni.environment.get_ifname()?;
-
     let netns_path = Path::new(netns_str);
 
-    // Check that the network namespace exists (skip in dry-run mode)
-    if !ctx.cni.is_dry_run && !netns_path.exists() {
-        return Err(format!("Network namespace does not exist: {}", netns_str).into());
-    }
-
-    // Determine master interface to validate it exists
+    // Determine master interface
     let master_interface = ctx.get_master_interface(driver)?;
 
-    // Verify master interface exists
-    driver.check_interface(&master_interface)?;
+    // Plan validation steps (business logic)
+    let validation_steps =
+        CniOrchestrator::plan_check_operation(config, ifname, &master_interface)?;
 
-    // Check that the interface exists in the specified netns
-    if !driver.interface_exists_in_netns(netns_path, &ifname)? {
-        return Err(format!(
-            "Interface '{}' not found in network namespace '{}'",
-            ifname, netns_str
-        )
-        .into());
+    // Execute validation steps (system operations)
+    for step in validation_steps {
+        match step {
+            ValidationStep::CheckNetnsExists => {
+                if !ctx.cni.is_dry_run && !netns_path.exists() {
+                    return Err(format!("Network namespace does not exist: {}", netns_str).into());
+                }
+            }
+            ValidationStep::CheckMasterInterface(ref interface) => {
+                driver.check_interface(interface)?;
+            }
+            ValidationStep::CheckTargetInterface(ref interface) => {
+                if !driver.interface_exists_in_netns(netns_path, interface)? {
+                    return Err(format!(
+                        "Interface '{}' not found in network namespace '{}'",
+                        interface, netns_str
+                    )
+                    .into());
+                }
+            }
+        }
     }
 
     // All checks passed - return success (empty response)
@@ -304,9 +258,8 @@ fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box
 }
 
 fn cmd_success(ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
-    ctx.output.write_output(
-        r#"{\"cniVersion\": \"1.0.0\", \"interfaces\": [], \"ips\": [], \"dns\": {}}"#,
-    )?;
+    let result = CniOrchestrator::create_success_result();
+    ctx.output.write_output(&serde_json::to_string(&result)?)?;
     Ok(())
 }
 

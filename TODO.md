@@ -196,16 +196,19 @@
 - ✅ Improved testability by making output mockable and capturable
 - ✅ All integration tests passing (10/10) after refactoring
 
-### 12f. Business Logic Mixed with System Integration
+### 12f. Business Logic Mixed with System Integration ✅ COMPLETED
 **Priority**: Medium
-**Status**: Open
+**Status**: Resolved ✅
 **Location:** [src/main.rs](src/main.rs#L180-L230)  
 **Description:** Core CNI business logic (IP generation, interface configuration) is mixed with system calls and I/O operations  
-**Recommended Actions:**
-- Extract core business logic into a separate CniOrchestrator/CniService layer
-- Create pure functions for CNI operations that don't depend on system state
-- Implement integration layer that coordinates between business logic and drivers
-- Add comprehensive unit tests for isolated business logic
+**Completed Actions:**
+- ✅ Created comprehensive [src/orchestrator.rs](src/orchestrator.rs) module with `CniOrchestrator` business logic layer
+- ✅ Extracted pure business logic functions for CNI operations (`plan_add_operation`, `plan_check_operation`, etc.)
+- ✅ Separated network configuration planning from system execution in all command handlers  
+- ✅ Implemented structured result types (`NetworkConfiguration`, `ValidationStep`) for clear business logic flow
+- ✅ Added comprehensive unit tests (7 tests) for isolated business logic covering all major scenarios
+- ✅ Refactored all command handlers to use orchestrator for business decisions while delegating system operations to drivers
+- ✅ Maintained complete backward compatibility with existing CNI protocol behavior
 
 ## Minor Issues
 
