@@ -18,6 +18,12 @@ impl CniConfigBuilder {
         }
     }
 
+    /// Create a builder from existing JSON string
+    pub fn from_json_string(json_str: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let parsed: Value = serde_json::from_str(json_str)?;
+        Ok(Self { config: parsed })
+    }
+
     pub fn with_name(mut self, name: &str) -> Self {
         self.config["name"] = json!(name);
         self

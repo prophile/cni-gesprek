@@ -1,9 +1,11 @@
+use crate::testing::test_utils::{CniTestUtils, TestIsolationManager};
 use crate::testing::{CapturedCommand, CniConfigBuilder, CniEnvBuilder, CommandCaptureDriver};
 use serde_json::Value;
 use std::error::Error;
 use std::fmt;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 /// Result of a test execution
 #[derive(Debug, Clone)]
@@ -71,6 +73,7 @@ pub trait TestCase {
 pub struct TestRunner {
     pub binary_path: String,
     pub capture_driver: CommandCaptureDriver,
+    pub isolation_manager: Arc<TestIsolationManager>,
 }
 
 impl TestRunner {
@@ -78,10 +81,153 @@ impl TestRunner {
         Self {
             binary_path: binary_path.to_string(),
             capture_driver: CommandCaptureDriver::new(),
+            isolation_manager: Arc::new(TestIsolationManager::new()),
         }
     }
 
-    /// Run the CNI plugin with given configuration and environment
+    /// Create a new test runner with shared isolation manager for coordinated testing
+    pub fn with_shared_isolation(
+        binary_path: &str,
+        isolation_manager: Arc<TestIsolationManager>,
+    ) -> Self {
+        Self {
+            binary_path: binary_path.to_string(),
+            capture_driver: CommandCaptureDriver::new(),
+            isolation_manager,
+        }
+    }
+
+    /// Run a test with full isolation and cleanup
+    pub fn run_test_with_isolation(
+        &self,
+        mut test_case: Box<dyn TestCase>,
+    ) -> Result<TestResult, Box<dyn Error>> {
+        let test_name = test_case.name().to_string(); // Convert to owned string
+
+        // Register test for isolation
+        self.isolation_manager
+            .register_test(&test_name)
+            .map_err(|e| format!("Failed to register test: {}", e))?;
+
+        let result = self.run_test_isolated(test_case.as_mut());
+
+        // Unregister and cleanup
+        let _duration = self.isolation_manager.unregister_test(&test_name);
+
+        result
+    }
+
+    fn run_test_isolated(
+        &self,
+        test_case: &mut dyn TestCase,
+    ) -> Result<TestResult, Box<dyn Error>> {
+        // Setup phase
+        test_case.setup()?;
+
+        // Execute phase
+        let mut result = test_case.execute(self)?;
+
+        // Validate phase
+        test_case.validate(&mut result);
+
+        Ok(result)
+    }
+
+    /// Run CNI command with enhanced error handling and cleanup
+    pub fn run_cni_enhanced(
+        &self,
+        config: &CniConfigBuilder,
+        env: &CniEnvBuilder,
+        dry_run: bool,
+        timeout_secs: Option<u64>,
+    ) -> Result<TestResult, Box<dyn Error>> {
+        let config_json = config.clone().build_json_string();
+        let env_vars = env.clone().build();
+
+        // Validate configuration before running
+        CniTestUtils::validate_json_structure(&config_json, &["cniVersion", "name", "type"])
+            .map_err(|e| format!("Invalid CNI configuration: {}", e))?;
+
+        let mut cmd = Command::new(&self.binary_path);
+
+        // Set environment variables
+        for (key, value) in env_vars.iter() {
+            cmd.env(key, value);
+        }
+
+        // Add dry run flag if requested
+        if dry_run {
+            cmd.arg("--dry-run");
+        }
+
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = cmd.spawn()?;
+
+        // Write config to stdin
+        if let Some(stdin) = child.stdin.take() {
+            std::thread::spawn(move || {
+                let mut stdin = stdin;
+                let _ = stdin.write_all(config_json.as_bytes());
+            });
+        }
+
+        // Handle timeout if specified
+        let output = if let Some(timeout) = timeout_secs {
+            use std::time::Duration;
+            let timeout_duration = Duration::from_secs(timeout);
+
+            // Simple timeout implementation without external crate
+            let start = std::time::Instant::now();
+            loop {
+                match child.try_wait()? {
+                    Some(exit_status) => {
+                        let stdout = {
+                            let mut stdout = child.stdout.take().unwrap();
+                            let mut buffer = Vec::new();
+                            std::io::Read::read_to_end(&mut stdout, &mut buffer)?;
+                            String::from_utf8_lossy(&buffer).to_string()
+                        };
+
+                        let stderr = {
+                            let mut stderr = child.stderr.take().unwrap();
+                            let mut buffer = Vec::new();
+                            std::io::Read::read_to_end(&mut stderr, &mut buffer)?;
+                            String::from_utf8_lossy(&buffer).to_string()
+                        };
+
+                        break std::process::Output {
+                            status: exit_status,
+                            stdout: stdout.into_bytes(),
+                            stderr: stderr.into_bytes(),
+                        };
+                    }
+                    None => {
+                        if start.elapsed() > timeout_duration {
+                            let _ = child.kill();
+                            return Err(
+                                format!("Command timed out after {} seconds", timeout).into()
+                            );
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
+            }
+        } else {
+            child.wait_with_output()?
+        };
+
+        Ok(TestResult {
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code(),
+            captured_commands: Vec::new(),
+            errors: Vec::new(),
+        })
+    }
     pub fn run_cni(
         &self,
         config: &CniConfigBuilder,

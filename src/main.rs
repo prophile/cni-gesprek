@@ -89,7 +89,7 @@ struct Args {
 
 // --- Helpers ---
 
-fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
+pub fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
     let parts: Vec<&str> = cidr.split('/').collect();
     if parts.len() != 2 {
         return Err("Invalid CIDR format".into());
