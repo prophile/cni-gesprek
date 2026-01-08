@@ -3,7 +3,7 @@ use std::net::Ipv6Addr;
 
 use crate::cni::{CniConfig, CniDns};
 use crate::utils;
-use rand;
+
 use serde::{Deserialize, Serialize};
 
 /// Core CNI operation results

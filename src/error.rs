@@ -105,9 +105,7 @@ impl fmt::Display for ConfigError {
 
 impl Error for ConfigError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            _ => None,
-        }
+        None
     }
 }
 

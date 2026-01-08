@@ -40,7 +40,7 @@ fn main() -> CniResult<()> {
     }
 
     let cli_args = CliArgs::parse();
-    let env_provider = SystemEnvironmentProvider::default();
+    let env_provider = SystemEnvironmentProvider;
 
     // Load CNI context (environment + configuration parsing)
     let cni_context = CniContext::load(&env_provider, cli_args.dry_run).map_err(|e| {

@@ -22,6 +22,12 @@ impl BasicAddTest {
     }
 }
 
+impl Default for BasicAddTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for BasicAddTest {
     fn name(&self) -> &str {
         &self.name
@@ -105,6 +111,12 @@ impl AddWithDnsTest {
     }
 }
 
+impl Default for AddWithDnsTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for AddWithDnsTest {
     fn name(&self) -> &str {
         &self.name
@@ -161,6 +173,12 @@ impl AutoDetectTest {
     }
 }
 
+impl Default for AutoDetectTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for AutoDetectTest {
     fn name(&self) -> &str {
         &self.name
@@ -205,6 +223,12 @@ impl SubnetDetectTest {
             config,
             env,
         }
+    }
+}
+
+impl Default for SubnetDetectTest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -260,6 +284,12 @@ impl VersionTest {
     }
 }
 
+impl Default for VersionTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for VersionTest {
     fn name(&self) -> &str {
         &self.name
@@ -310,6 +340,12 @@ impl DeleteTest {
     }
 }
 
+impl Default for DeleteTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for DeleteTest {
     fn name(&self) -> &str {
         &self.name
@@ -351,6 +387,12 @@ impl CheckTest {
     }
 }
 
+impl Default for CheckTest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestCase for CheckTest {
     fn name(&self) -> &str {
         &self.name
@@ -389,6 +431,12 @@ impl StatusTest {
             config,
             env,
         }
+    }
+}
+
+impl Default for StatusTest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

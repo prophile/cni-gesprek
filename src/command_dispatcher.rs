@@ -5,7 +5,6 @@ use crate::driver::NetworkDriver;
 use crate::error::{CniResult, CommandError};
 use crate::orchestrator::{CniOrchestrator, ValidationStep};
 use crate::output::OutputWriter;
-use serde_json;
 
 /// CLI Arguments structure (replicated to avoid circular dependencies)
 #[derive(Clone)]
@@ -196,7 +195,7 @@ impl<'a> CommandDispatcher<'a> {
         if let Err(e) = driver.configure_in_netns(
             netns_path,
             &network_config.temporary_name,
-            &ifname,
+            ifname,
             &network_config.target_ip,
             network_config.gateway.as_ref(),
         ) {

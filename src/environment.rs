@@ -182,7 +182,7 @@ impl CniEnvironment {
 
     /// Get the network namespace path, returning an error if not set
     pub fn get_netns(&self) -> CniResult<&str> {
-        self.netns.as_ref().map(|s| s.as_str()).ok_or_else(|| {
+        self.netns.as_deref().ok_or_else(|| {
             EnvironmentError::MissingVariable {
                 variable: "CNI_NETNS".to_string(),
                 command: "unknown".to_string(),
@@ -193,7 +193,7 @@ impl CniEnvironment {
 
     /// Get the interface name, returning an error if not set
     pub fn get_ifname(&self) -> CniResult<&str> {
-        self.ifname.as_ref().map(|s| s.as_str()).ok_or_else(|| {
+        self.ifname.as_deref().ok_or_else(|| {
             EnvironmentError::MissingVariable {
                 variable: "CNI_IFNAME".to_string(),
                 command: "unknown".to_string(),
@@ -204,16 +204,13 @@ impl CniEnvironment {
 
     /// Get the container ID, returning an error if not set
     pub fn get_container_id(&self) -> CniResult<&str> {
-        self.container_id
-            .as_ref()
-            .map(|s| s.as_str())
-            .ok_or_else(|| {
-                EnvironmentError::MissingVariable {
-                    variable: "CNI_CONTAINERID".to_string(),
-                    command: "unknown".to_string(),
-                }
-                .into()
-            })
+        self.container_id.as_deref().ok_or_else(|| {
+            EnvironmentError::MissingVariable {
+                variable: "CNI_CONTAINERID".to_string(),
+                command: "unknown".to_string(),
+            }
+            .into()
+        })
     }
 
     /// Validate CNI_NETNS path format

@@ -105,7 +105,7 @@ impl CniTestUtils {
             serde_json::from_str(json_str).map_err(|e| format!("Invalid JSON: {}", e))?;
 
         for field in expected_fields {
-            if !json.get(field).is_some() {
+            if json.get(field).is_none() {
                 return Err(format!("Missing required field: {}", field));
             }
         }
@@ -206,7 +206,6 @@ pub struct TestIsolationManager {
 
 #[derive(Debug)]
 struct TestContext {
-    test_name: String,
     start_time: Instant,
     resources: Vec<String>,
 }
@@ -230,7 +229,6 @@ impl TestIsolationManager {
         tests.insert(
             test_name.to_string(),
             TestContext {
-                test_name: test_name.to_string(),
                 start_time: Instant::now(),
                 resources: Vec::new(),
             },
@@ -269,6 +267,12 @@ impl TestIsolationManager {
     /// Get currently active tests
     pub fn get_active_tests(&self) -> Vec<String> {
         self.active_tests.lock().unwrap().keys().cloned().collect()
+    }
+}
+
+impl Default for TestIsolationManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -327,6 +331,12 @@ impl CommandSequenceValidator {
             }
         }
         false
+    }
+}
+
+impl Default for CommandSequenceValidator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

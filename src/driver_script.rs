@@ -1,7 +1,7 @@
 use crate::driver::{InterfaceLifecycle, Ipv6Subnet, NetworkDiscovery, NetworkNamespaceOps};
 use regex::Regex;
 use std::error::Error;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv6Addr;
 use std::path::Path;
 use std::process::Command;
 use std::thread;

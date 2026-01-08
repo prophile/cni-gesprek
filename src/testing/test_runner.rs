@@ -7,6 +7,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
+/// Type alias for test results to reduce complexity
+pub type TestCaseResults = Vec<(String, Result<TestResult, Box<dyn Error>>)>;
+
 /// Result of a test execution
 #[derive(Debug, Clone)]
 pub struct TestResult {
@@ -309,10 +312,7 @@ impl TestRunner {
     }
 
     /// Run multiple test cases
-    pub fn run_tests(
-        &self,
-        test_cases: Vec<Box<dyn TestCase>>,
-    ) -> Vec<(String, Result<TestResult, Box<dyn Error>>)> {
+    pub fn run_tests(&self, test_cases: Vec<Box<dyn TestCase>>) -> TestCaseResults {
         test_cases
             .into_iter()
             .map(|test_case| {
@@ -413,7 +413,7 @@ impl CommandValidators {
         match serde_json::from_str::<Value>(&result.stdout) {
             Ok(json) => {
                 for field in expected_fields {
-                    if !json.get(field).is_some() {
+                    if json.get(field).is_none() {
                         result.add_error(format!(
                             "{}: Missing expected JSON field '{}'",
                             description, field
@@ -439,7 +439,7 @@ impl CommandValidators {
                 && cmd.args.contains(&"add".to_string())
                 && cmd.args.contains(&"type".to_string())
                 && cmd.args.contains(&"ipvlan".to_string())
-                && cmd.args.contains(&format!("mode").to_string())
+                && cmd.args.contains(&"mode".to_string())
                 && cmd.args.contains(&mode.to_string())
                 && cmd.args.contains(&"link".to_string())
                 && cmd.args.contains(&parent.to_string())
