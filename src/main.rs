@@ -1,6 +1,7 @@
 mod driver;
 mod driver_dryrun;
 mod driver_script;
+mod environment;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
@@ -9,9 +10,9 @@ use clap::Parser;
 use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
 use driver_script::ScriptDriver;
+use environment::{CniEnvironment, EnvironmentProvider, SystemEnvironmentProvider};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::error::Error;
 use std::io::{self, Read};
 use std::net::Ipv6Addr;
@@ -128,9 +129,19 @@ pub fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    let env_provider = SystemEnvironmentProvider::default();
+
+    // Load and validate CNI environment
+    let cni_env = CniEnvironment::load(&env_provider);
+
+    // Validate environment variables for the command early
+    if let Err(e) = cni_env.validate_for_command() {
+        eprintln!("Environment validation error: {}", e);
+        std::process::exit(1);
+    }
 
     // Check for DRY_RUN environment variable or command line flag
-    let is_dry_run = args.dry_run || env::var("DRY_RUN").is_ok();
+    let is_dry_run = args.dry_run || env_provider.exists("DRY_RUN");
 
     let driver: Box<dyn NetworkDriver> = if is_dry_run {
         Box::new(DryRunDriver)
@@ -138,10 +149,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Box::new(ScriptDriver)
     };
 
-    let cni_command = env::var("CNI_COMMAND").unwrap_or_else(|_| "VERSION".to_string());
-
     let cni_config: Option<CniConfig> =
-        if ["ADD", "DEL", "CHECK", "STATUS"].contains(&cni_command.as_str()) {
+        if ["ADD", "DEL", "CHECK", "STATUS"].contains(&cni_env.command.as_str()) {
             let mut buffer = String::new();
             let _ = io::stdin().read_to_string(&mut buffer);
             if !buffer.is_empty() {
@@ -153,15 +162,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         };
 
-    match cni_command.as_str() {
-        "ADD" => cmd_add(&args, cni_config, &*driver),
-        "DEL" => cmd_del(&args, cni_config, &*driver, is_dry_run),
-        "CHECK" => cmd_check(&args, cni_config, &*driver, is_dry_run),
+    match cni_env.command.as_str() {
+        "ADD" => cmd_add(&args, cni_config, &*driver, &cni_env),
+        "DEL" => cmd_del(&args, cni_config, &*driver, &cni_env, is_dry_run),
+        "CHECK" => cmd_check(&args, cni_config, &*driver, &cni_env, is_dry_run),
         "GC" => cmd_success(),
         "VERSION" => cmd_version(),
-        "STATUS" => cmd_status(&args, cni_config, &*driver),
+        "STATUS" => cmd_status(&args, cni_config, &*driver, &cni_env),
         _ => {
-            eprintln!("Unknown CNI_COMMAND: {}", cni_command);
+            eprintln!("Unknown CNI_COMMAND: {}", cni_env.command);
             std::process::exit(1);
         }
     }
@@ -171,11 +180,12 @@ fn cmd_add(
     args: &Args,
     config: Option<CniConfig>,
     driver: &dyn NetworkDriver,
+    cni_env: &CniEnvironment,
 ) -> Result<(), Box<dyn Error>> {
     let config = config.ok_or("Missing CNI configuration on stdin")?;
-    let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
-    let netns_path = Path::new(&netns_str);
-    let ifname = env::var("CNI_IFNAME").map_err(|_| "CNI_IFNAME not set")?;
+    let netns_str = cni_env.get_netns()?;
+    let netns_path = Path::new(netns_str);
+    let ifname = cni_env.get_ifname()?;
 
     // 1. Determine Host Interface
     let master_interface = if let Some(cli_iface) = &args.interface {
@@ -238,9 +248,9 @@ fn cmd_add(
     let result = CniResult {
         cniVersion: config.cniVersion,
         interfaces: vec![CniInterface {
-            name: ifname,
+            name: ifname.to_string(),
             mac: "".to_string(),
-            sandbox: netns_str,
+            sandbox: netns_str.to_string(),
         }],
         ips: vec![CniIp {
             version: "6".to_string(),
@@ -260,6 +270,7 @@ fn cmd_status(
     args: &Args,
     config: Option<CniConfig>,
     driver: &dyn NetworkDriver,
+    _cni_env: &CniEnvironment,
 ) -> Result<(), Box<dyn Error>> {
     let master_interface = if let Some(cli_iface) = &args.interface {
         cli_iface.clone()
@@ -282,20 +293,20 @@ fn cmd_version() -> Result<(), Box<dyn Error>> {
 }
 
 fn cmd_del(
-    args: &Args,
-    config: Option<CniConfig>,
+    _args: &Args,
+    _config: Option<CniConfig>,
     driver: &dyn NetworkDriver,
+    cni_env: &CniEnvironment,
     is_dry_run: bool,
 ) -> Result<(), Box<dyn Error>> {
     // DEL command should be idempotent - succeed even if interface doesn't exist
 
-    // Validate required environment variables
-    let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
-    let _container_id = env::var("CNI_CONTAINERID").map_err(|_| "CNI_CONTAINERID not set")?;
-    let ifname = env::var("CNI_IFNAME").map_err(|_| "CNI_IFNAME not set")?;
+    // Get required environment variables from CniEnvironment
+    let netns_str = cni_env.get_netns()?;
+    let _container_id = cni_env.get_container_id()?;
+    let ifname = cni_env.get_ifname()?;
 
-    let netns_path = Path::new(&netns_str);
-
+    let netns_path = Path::new(netns_str);
     // Check if the network namespace exists at all (skip in dry-run mode)
     if !is_dry_run && !netns_path.exists() {
         // Netns doesn't exist, nothing to clean up - this is success
@@ -304,7 +315,7 @@ fn cmd_del(
 
     // Try to delete the interface from inside the netns
     // This should be idempotent - if interface doesn't exist, just succeed
-    match driver.delete_interface_in_netns(netns_path, &ifname) {
+    match driver.delete_interface_in_netns(netns_path, ifname) {
         Ok(()) => {
             // Successfully deleted or interface didn't exist
             Ok(())
@@ -321,6 +332,7 @@ fn cmd_check(
     args: &Args,
     config: Option<CniConfig>,
     driver: &dyn NetworkDriver,
+    cni_env: &CniEnvironment,
     is_dry_run: bool,
 ) -> Result<(), Box<dyn Error>> {
     // CHECK command validates that the configuration is still valid
@@ -332,12 +344,12 @@ fn cmd_check(
         return Err(format!("Unsupported CNI version: {}", config.cniVersion).into());
     }
 
-    // Validate required environment variables
-    let netns_str = env::var("CNI_NETNS").map_err(|_| "CNI_NETNS not set")?;
-    let _container_id = env::var("CNI_CONTAINERID").map_err(|_| "CNI_CONTAINERID not set")?;
-    let ifname = env::var("CNI_IFNAME").map_err(|_| "CNI_IFNAME not set")?;
+    // Get required environment variables from CniEnvironment
+    let netns_str = cni_env.get_netns()?;
+    let _container_id = cni_env.get_container_id()?;
+    let ifname = cni_env.get_ifname()?;
 
-    let netns_path = Path::new(&netns_str);
+    let netns_path = Path::new(netns_str);
 
     // Check that the network namespace exists (skip in dry-run mode)
     if !is_dry_run && !netns_path.exists() {

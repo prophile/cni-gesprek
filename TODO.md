@@ -161,16 +161,18 @@
 - Consider implementing a Command trait for different CNI operations
 - Add builder pattern for constructing CommandContext
 
-### 12d. Environment Variable Access Throughout Handlers
+### 12d. Environment Variable Access Throughout Handlers ✅ COMPLETED
 **Priority**: Medium
-**Status**: Open
-**Location:** [src/main.rs](src/main.rs#L175), [src/main.rs](src/main.rs#L290-L295), [src/main.rs](src/main.rs#L335-L340)  
+**Status**: Resolved ✅
+**Location:** [src/environment.rs](src/environment.rs) (new), [src/main.rs](src/main.rs#L175), [src/main.rs](src/main.rs#L290-L295), [src/main.rs](src/main.rs#L335-L340)  
 **Description:** Command handlers directly access environment variables making them difficult to test and tightly coupled to system state  
-**Recommended Actions:**
-- Create an EnvironmentProvider trait to abstract environment access
-- Implement MockEnvironmentProvider for testing
-- Pass environment data through CommandContext instead of direct env::var calls
-- Validate all required environment variables upfront
+**Completed Actions:**
+- ✅ Created EnvironmentProvider trait to abstract environment access
+- ✅ Implemented SystemEnvironmentProvider for production and MockEnvironmentProvider for testing
+- ✅ Created CniEnvironment struct to consolidate CNI-specific environment variables
+- ✅ Refactored all command handlers to use environment abstraction
+- ✅ Added comprehensive test coverage (5/5 environment tests passing)
+- ✅ Validated with integration tests (10/10 passing)
 
 ### 12e. Direct Output and Error Handling in Command Handlers
 **Priority**: Medium
