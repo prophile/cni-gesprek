@@ -141,7 +141,7 @@ mod enhanced_testing_examples {
 
         // Benchmark IP generation performance
         let benchmark_result = PerformanceTestUtils::benchmark(
-            || cni_gesprek::generate_random_ip("2001:db8:3::/64"),
+            || cni_gesprek::utils::generate_random_ip("2001:db8:3::/64"),
             100,
         );
 

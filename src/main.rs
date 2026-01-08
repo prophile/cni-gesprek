@@ -6,24 +6,24 @@ mod environment;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 
+use cni_gesprek::utils;
+
 use clap::Parser;
 use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
 use driver_script::ScriptDriver;
 use environment::{CniEnvironment, EnvironmentProvider, SystemEnvironmentProvider};
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::io::{self, Read};
-use std::net::Ipv6Addr;
 use std::path::Path;
-use std::str::FromStr;
 
 // --- Configuration Structures (CNI Spec) ---
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct CniConfig {
-    cniVersion: String,
+    #[serde(rename = "cniVersion")]
+    cni_version: String,
     name: String,
     #[serde(rename = "type")]
     plugin_type: String,
@@ -32,7 +32,8 @@ struct CniConfig {
     master: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    podCIDR: Option<String>,
+    #[serde(rename = "podCIDR")]
+    pod_cidr: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     dns: Option<CniDns>,
@@ -52,7 +53,8 @@ struct CniDns {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct CniResult {
-    cniVersion: String,
+    #[serde(rename = "cniVersion")]
+    cni_version: String,
     interfaces: Vec<CniInterface>,
     ips: Vec<CniIp>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,41 +139,6 @@ impl CommandContext {
 
 // --- Helpers ---
 
-pub fn generate_random_ip(cidr: &str) -> Result<String, Box<dyn Error>> {
-    let parts: Vec<&str> = cidr.split('/').collect();
-    if parts.len() != 2 {
-        return Err("Invalid CIDR format".into());
-    }
-
-    let base_ip = Ipv6Addr::from_str(parts[0])?;
-    let prefix_len: u8 = parts[1].parse()?;
-
-    if prefix_len > 128 {
-        return Err("Invalid prefix length".into());
-    }
-
-    let base_u128 = u128::from(base_ip);
-
-    let mask = if prefix_len == 0 {
-        0
-    } else {
-        let shift = 128 - prefix_len;
-        let set_bit = 1u128.checked_shl(shift as u32).unwrap_or(0);
-        if shift == 128 {
-            0
-        } else {
-            !(set_bit - 1)
-        }
-    };
-
-    let mut rng = rand::thread_rng();
-    let random_part: u128 = rng.gen();
-    let final_u128 = (base_u128 & mask) | (random_part & !mask);
-
-    let final_ip = Ipv6Addr::from(final_u128);
-    Ok(format!("{}/{}", final_ip, prefix_len))
-}
-
 // --- Main Logic ---
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -238,7 +205,7 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
     // 2. Determine Subnet (CIDR)
     let cidr_string = if let Some(cli_cidr) = &ctx.args.pod_cidr {
         cli_cidr.clone()
-    } else if let Some(conf_cidr) = &config.podCIDR {
+    } else if let Some(conf_cidr) = &config.pod_cidr {
         conf_cidr.clone()
     } else {
         let (ip, pfx) = driver.get_interface_subnet(&master_interface)?;
@@ -251,7 +218,7 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
         .unwrap_or(None);
 
     // 4. Generate Random IP
-    let target_ip_cidr = generate_random_ip(&cidr_string)?;
+    let target_ip_cidr = utils::generate_random_ip(&cidr_string)?;
 
     // 5. Create IPvlan (Host Side)
     let random_suffix: String = (0..8)
@@ -283,7 +250,7 @@ fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
 
     // 8. Output Result
     let result = CniResult {
-        cniVersion: config.cniVersion.clone(),
+        cni_version: config.cni_version.clone(),
         interfaces: vec![CniInterface {
             name: ifname.to_string(),
             mac: "".to_string(),
@@ -354,8 +321,8 @@ fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box
     let config = ctx.require_config()?;
 
     // Validate CNI version
-    if config.cniVersion != "1.0.0" {
-        return Err(format!("Unsupported CNI version: {}", config.cniVersion).into());
+    if config.cni_version != "1.0.0" {
+        return Err(format!("Unsupported CNI version: {}", config.cni_version).into());
     }
 
     // Get required environment variables from CniEnvironment
@@ -404,7 +371,7 @@ mod tests {
     #[test]
     fn test_generate_random_ip_basic() {
         let cidr = "2001:db8::/64";
-        let result = generate_random_ip(cidr).unwrap();
+        let result = utils::generate_random_ip(cidr).unwrap();
 
         // Should be in format IP/64
         assert!(result.contains('/'));
@@ -426,15 +393,15 @@ mod tests {
     #[test]
     fn test_generate_random_ip_edge_cases() {
         // Test /0 prefix (whole IPv6 space)
-        let result = generate_random_ip("2001:db8::1/0").unwrap();
+        let result = utils::generate_random_ip("2001:db8::1/0").unwrap();
         assert!(result.contains("/0"));
 
         // Test /128 prefix (single IP)
-        let result = generate_random_ip("2001:db8::1/128").unwrap();
+        let result = utils::generate_random_ip("2001:db8::1/128").unwrap();
         assert_eq!(result, "2001:db8::1/128");
 
         // Test /64 prefix (standard)
-        let result = generate_random_ip("2001:db8:1:2::/64").unwrap();
+        let result = utils::generate_random_ip("2001:db8:1:2::/64").unwrap();
         assert!(result.contains("/64"));
         let parts: Vec<&str> = result.split('/').collect();
         let ip = Ipv6Addr::from_str(parts[0]).unwrap();
@@ -458,7 +425,7 @@ mod tests {
 
         // Generate multiple IPs and ensure they're different
         for _ in 0..10 {
-            let ip = generate_random_ip(cidr).unwrap();
+            let ip = utils::generate_random_ip(cidr).unwrap();
             generated_ips.insert(ip);
         }
 
@@ -469,16 +436,16 @@ mod tests {
     #[test]
     fn test_generate_random_ip_invalid_cidr() {
         // Invalid format
-        assert!(generate_random_ip("not-a-cidr").is_err());
+        assert!(utils::generate_random_ip("not-a-cidr").is_err());
 
         // Invalid IP
-        assert!(generate_random_ip("invalid-ip/64").is_err());
+        assert!(utils::generate_random_ip("invalid-ip/64").is_err());
 
         // Invalid prefix length
-        assert!(generate_random_ip("2001:db8::/129").is_err());
+        assert!(utils::generate_random_ip("2001:db8::/129").is_err());
 
         // No prefix length
-        assert!(generate_random_ip("2001:db8::").is_err());
+        assert!(utils::generate_random_ip("2001:db8::").is_err());
     }
 
     #[test]
@@ -493,7 +460,7 @@ mod tests {
         ];
 
         for (cidr, prefix_len) in test_cases {
-            let result = generate_random_ip(cidr).unwrap();
+            let result = utils::generate_random_ip(cidr).unwrap();
             let result_parts: Vec<&str> = result.split('/').collect();
             let generated_ip = Ipv6Addr::from_str(result_parts[0]).unwrap();
 
@@ -545,11 +512,11 @@ mod tests {
         }"#;
 
         let config: CniConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(config.cniVersion, "1.0.0");
+        assert_eq!(config.cni_version, "1.0.0");
         assert_eq!(config.name, "test-network");
         assert_eq!(config.plugin_type, "cni-gesprek");
         assert_eq!(config.master, Some("eth0".to_string()));
-        assert_eq!(config.podCIDR, Some("2001:db8::/64".to_string()));
+        assert_eq!(config.pod_cidr, Some("2001:db8::/64".to_string()));
 
         let dns = config.dns.unwrap();
         assert_eq!(dns.nameservers.unwrap(), vec!["2001:db8::53"]);
@@ -559,7 +526,7 @@ mod tests {
     #[test]
     fn test_cni_result_serialization() {
         let result = CniResult {
-            cniVersion: "1.0.0".to_string(),
+            cni_version: "1.0.0".to_string(),
             interfaces: vec![CniInterface {
                 name: "eth0".to_string(),
                 mac: "aa:bb:cc:dd:ee:ff".to_string(),
@@ -618,7 +585,7 @@ mod tests {
         let cidr = "2001:db8:1:2::/64";
 
         for _ in 0..20 {
-            let generated = generate_random_ip(cidr).unwrap();
+            let generated = utils::generate_random_ip(cidr).unwrap();
             let ip_part = generated.split('/').next().unwrap();
             let ip = Ipv6Addr::from_str(ip_part).unwrap();
 
@@ -646,7 +613,7 @@ mod tests {
 
         // Generate many IPs and check for reasonable distribution
         for _ in 0..1000 {
-            let ip = generate_random_ip(cidr).unwrap();
+            let ip = utils::generate_random_ip(cidr).unwrap();
             ips.insert(ip);
         }
 
@@ -689,7 +656,7 @@ mod tests {
             ];
 
             for (cidr, should_be_valid) in test_cases {
-                let result = generate_random_ip(cidr);
+                let result = utils::generate_random_ip(cidr);
                 if should_be_valid {
                     assert!(result.is_ok(), "Expected {} to be valid", cidr);
                 } else {
@@ -706,7 +673,7 @@ mod tests {
         fn test_error_propagation() {
             // Test that errors are properly propagated through the system
             let invalid_cidr = "not-a-cidr";
-            let error = generate_random_ip(invalid_cidr).unwrap_err();
+            let error = utils::generate_random_ip(invalid_cidr).unwrap_err();
             assert!(error.to_string().contains("Invalid CIDR format"));
         }
 
