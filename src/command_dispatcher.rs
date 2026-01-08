@@ -1,8 +1,8 @@
-use std::error::Error;
 use std::path::Path;
 
 use crate::cni::{CniConfig, CniContext};
 use crate::driver::NetworkDriver;
+use crate::error::{CniResult, CommandError};
 use crate::orchestrator::{CniOrchestrator, ValidationStep};
 use crate::output::OutputWriter;
 use serde_json;
@@ -30,15 +30,12 @@ impl<'a> CommandContext<'a> {
     }
 
     /// Helper to get config and handle errors consistently
-    pub fn require_config(&self) -> Result<&CniConfig, Box<dyn Error>> {
+    pub fn require_config(&self) -> CniResult<&CniConfig> {
         self.cni.require_config()
     }
 
     /// Helper to determine master interface with fallback logic
-    pub fn get_master_interface(
-        &self,
-        driver: &dyn NetworkDriver,
-    ) -> Result<String, Box<dyn Error>> {
+    pub fn get_master_interface(&self, driver: &dyn NetworkDriver) -> CniResult<String> {
         if let Some(interface) = &self.args.interface {
             return Ok(interface.clone());
         }
@@ -50,7 +47,7 @@ impl<'a> CommandContext<'a> {
         }
 
         // Auto-detect first available interface
-        driver.detect_upstream_interface()
+        driver.detect_upstream_interface().map_err(|e| e.into())
     }
 }
 
@@ -76,7 +73,7 @@ impl<'a> CommandDispatcher<'a> {
         args: &Args,
         cni_context: &CniContext,
         driver: &dyn NetworkDriver,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> CniResult<()> {
         let ctx = CommandContext::new(args.clone(), cni_context.clone(), self.output);
 
         match command {
@@ -89,7 +86,10 @@ impl<'a> CommandDispatcher<'a> {
             _ => {
                 self.output
                     .write_error(&format!("Unknown CNI_COMMAND: {}", command))?;
-                Err(format!("Unknown CNI command: {}", command).into())
+                Err(CommandError::UnknownCommand {
+                    command: command.to_string(),
+                }
+                .into())
             }
         }
     }
@@ -130,7 +130,7 @@ impl<'a> CommandDispatcher<'a> {
         cni_context: &CniContext,
         driver: &dyn NetworkDriver,
         config: &CommandConfig,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> CniResult<()> {
         if !Self::is_supported_command(command) && !config.allow_unknown_commands {
             let error_msg = format!("Unknown CNI_COMMAND: {}", command);
             self.output.write_error(&error_msg)?;
@@ -138,7 +138,10 @@ impl<'a> CommandDispatcher<'a> {
             if config.exit_on_error {
                 std::process::exit(1);
             } else {
-                return Err(format!("Unknown CNI command: {}", command).into());
+                return Err(CommandError::UnknownCommand {
+                    command: command.to_string(),
+                }
+                .into());
             }
         }
 
@@ -147,11 +150,7 @@ impl<'a> CommandDispatcher<'a> {
 
     // Command handler implementations
 
-    fn cmd_add(
-        &self,
-        ctx: &CommandContext,
-        driver: &dyn NetworkDriver,
-    ) -> Result<(), Box<dyn Error>> {
+    fn cmd_add(&self, ctx: &CommandContext, driver: &dyn NetworkDriver) -> CniResult<()> {
         let config = ctx.require_config()?;
         let netns_str = ctx.cni.environment.get_netns()?;
         let netns_path = Path::new(netns_str);
@@ -190,7 +189,7 @@ impl<'a> CommandDispatcher<'a> {
         // 6. Move to Netns
         if let Err(e) = driver.set_netns(&network_config.temporary_name, netns_path) {
             let _ = driver.delete_interface(&network_config.temporary_name);
-            return Err(e);
+            return Err(e.into());
         }
 
         // 7. Configure Inside Netns
@@ -201,7 +200,7 @@ impl<'a> CommandDispatcher<'a> {
             &network_config.target_ip,
             network_config.gateway.as_ref(),
         ) {
-            return Err(e);
+            return Err(e.into());
         }
 
         // 8. Output Result (business logic creates the structure)
@@ -211,11 +210,7 @@ impl<'a> CommandDispatcher<'a> {
         Ok(())
     }
 
-    fn cmd_del(
-        &self,
-        ctx: &CommandContext,
-        driver: &dyn NetworkDriver,
-    ) -> Result<(), Box<dyn Error>> {
+    fn cmd_del(&self, ctx: &CommandContext, driver: &dyn NetworkDriver) -> CniResult<()> {
         // Get required environment variables from CniEnvironment
         let netns_str = ctx.cni.environment.get_netns()?;
         let _container_id = ctx.cni.environment.get_container_id()?;
@@ -242,11 +237,7 @@ impl<'a> CommandDispatcher<'a> {
         }
     }
 
-    fn cmd_check(
-        &self,
-        ctx: &CommandContext,
-        driver: &dyn NetworkDriver,
-    ) -> Result<(), Box<dyn Error>> {
+    fn cmd_check(&self, ctx: &CommandContext, driver: &dyn NetworkDriver) -> CniResult<()> {
         let config = ctx.require_config()?;
         let netns_str = ctx.cni.environment.get_netns()?;
         let _container_id = ctx.cni.environment.get_container_id()?;
@@ -265,9 +256,10 @@ impl<'a> CommandDispatcher<'a> {
             match step {
                 ValidationStep::CheckNetnsExists => {
                     if !ctx.cni.is_dry_run && !netns_path.exists() {
-                        return Err(
-                            format!("Network namespace does not exist: {}", netns_str).into()
-                        );
+                        return Err(CommandError::NetnsNotFound {
+                            netns: netns_str.to_string(),
+                        }
+                        .into());
                     }
                 }
                 ValidationStep::CheckMasterInterface(ref interface) => {
@@ -275,10 +267,10 @@ impl<'a> CommandDispatcher<'a> {
                 }
                 ValidationStep::CheckTargetInterface(ref interface) => {
                     if !driver.interface_exists_in_netns(netns_path, interface)? {
-                        return Err(format!(
-                            "Interface '{}' not found in network namespace '{}'",
-                            interface, netns_str
-                        )
+                        return Err(CommandError::InterfaceNotFound {
+                            interface: interface.clone(),
+                            netns: netns_str.to_string(),
+                        }
                         .into());
                     }
                 }
@@ -289,17 +281,13 @@ impl<'a> CommandDispatcher<'a> {
         Ok(())
     }
 
-    fn cmd_version(&self, ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+    fn cmd_version(&self, ctx: &CommandContext) -> CniResult<()> {
         let response = CniOrchestrator::create_version_response();
         ctx.output.write_output(response)?;
         Ok(())
     }
 
-    fn cmd_status(
-        &self,
-        ctx: &CommandContext,
-        driver: &dyn NetworkDriver,
-    ) -> Result<(), Box<dyn Error>> {
+    fn cmd_status(&self, ctx: &CommandContext, driver: &dyn NetworkDriver) -> CniResult<()> {
         let master_interface = match ctx.get_master_interface(driver) {
             Ok(i) => i,
             Err(_) => std::process::exit(1),
@@ -309,7 +297,7 @@ impl<'a> CommandDispatcher<'a> {
         self.cmd_success(ctx)
     }
 
-    fn cmd_success(&self, ctx: &CommandContext) -> Result<(), Box<dyn Error>> {
+    fn cmd_success(&self, ctx: &CommandContext) -> CniResult<()> {
         let result = CniOrchestrator::create_success_result();
         ctx.output.write_output(&serde_json::to_string(&result)?)?;
         Ok(())

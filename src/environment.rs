@@ -1,6 +1,6 @@
+use crate::error::{CniResult, EnvironmentError};
 use std::collections::HashMap;
 use std::env;
-use std::error::Error;
 
 /// Trait for abstracting environment variable access
 pub trait EnvironmentProvider {
@@ -8,9 +8,14 @@ pub trait EnvironmentProvider {
     fn get(&self, key: &str) -> Option<String>;
 
     /// Get an environment variable, returning an error if not set
-    fn get_required(&self, key: &str) -> Result<String, Box<dyn Error>> {
-        self.get(key)
-            .ok_or_else(|| format!("{} not set", key).into())
+    fn get_required(&self, key: &str) -> CniResult<String> {
+        self.get(key).ok_or_else(|| {
+            EnvironmentError::MissingVariable {
+                variable: key.to_string(),
+                command: "unknown".to_string(),
+            }
+            .into()
+        })
     }
 
     /// Check if an environment variable exists (regardless of value)
@@ -19,10 +24,7 @@ pub trait EnvironmentProvider {
     }
 
     /// Get multiple required environment variables at once
-    fn get_required_multiple(
-        &self,
-        keys: &[&str],
-    ) -> Result<HashMap<String, String>, Box<dyn Error>> {
+    fn get_required_multiple(&self, keys: &[&str]) -> CniResult<HashMap<String, String>> {
         let mut result = HashMap::new();
         for key in keys {
             result.insert(key.to_string(), self.get_required(key)?);
@@ -122,52 +124,81 @@ impl CniEnvironment {
     }
 
     /// Validate that all required environment variables are present for a given command
-    pub fn validate_for_command(&self) -> Result<(), Box<dyn Error>> {
+    pub fn validate_for_command(&self) -> CniResult<()> {
         match self.command.as_str() {
             "ADD" | "DEL" | "CHECK" => {
                 if self.netns.is_none() {
-                    return Err("CNI_NETNS not set".into());
+                    return Err(EnvironmentError::MissingVariable {
+                        variable: "CNI_NETNS".to_string(),
+                        command: self.command.clone(),
+                    }
+                    .into());
                 }
                 if self.ifname.is_none() {
-                    return Err("CNI_IFNAME not set".into());
+                    return Err(EnvironmentError::MissingVariable {
+                        variable: "CNI_IFNAME".to_string(),
+                        command: self.command.clone(),
+                    }
+                    .into());
                 }
                 if self.container_id.is_none() && (self.command == "DEL" || self.command == "CHECK")
                 {
-                    return Err("CNI_CONTAINERID not set".into());
+                    return Err(EnvironmentError::MissingVariable {
+                        variable: "CNI_CONTAINERID".to_string(),
+                        command: self.command.clone(),
+                    }
+                    .into());
                 }
             }
             "VERSION" | "STATUS" | "GC" => {
                 // These commands don't require additional environment variables
             }
             _ => {
-                return Err(format!("Unknown CNI command: {}", self.command).into());
+                return Err(EnvironmentError::InvalidValue {
+                    name: "CNI_COMMAND".to_string(),
+                    value: self.command.clone(),
+                    expected: "ADD, DEL, CHECK, VERSION, STATUS, or GC".to_string(),
+                }
+                .into());
             }
         }
         Ok(())
     }
 
     /// Get the network namespace path, returning an error if not set
-    pub fn get_netns(&self) -> Result<&str, Box<dyn Error>> {
-        self.netns
-            .as_ref()
-            .map(|s| s.as_str())
-            .ok_or("CNI_NETNS not set".into())
+    pub fn get_netns(&self) -> CniResult<&str> {
+        self.netns.as_ref().map(|s| s.as_str()).ok_or_else(|| {
+            EnvironmentError::MissingVariable {
+                variable: "CNI_NETNS".to_string(),
+                command: "unknown".to_string(),
+            }
+            .into()
+        })
     }
 
     /// Get the interface name, returning an error if not set
-    pub fn get_ifname(&self) -> Result<&str, Box<dyn Error>> {
-        self.ifname
-            .as_ref()
-            .map(|s| s.as_str())
-            .ok_or("CNI_IFNAME not set".into())
+    pub fn get_ifname(&self) -> CniResult<&str> {
+        self.ifname.as_ref().map(|s| s.as_str()).ok_or_else(|| {
+            EnvironmentError::MissingVariable {
+                variable: "CNI_IFNAME".to_string(),
+                command: "unknown".to_string(),
+            }
+            .into()
+        })
     }
 
     /// Get the container ID, returning an error if not set
-    pub fn get_container_id(&self) -> Result<&str, Box<dyn Error>> {
+    pub fn get_container_id(&self) -> CniResult<&str> {
         self.container_id
             .as_ref()
             .map(|s| s.as_str())
-            .ok_or("CNI_CONTAINERID not set".into())
+            .ok_or_else(|| {
+                EnvironmentError::MissingVariable {
+                    variable: "CNI_CONTAINERID".to_string(),
+                    command: "unknown".to_string(),
+                }
+                .into()
+            })
     }
 }
 

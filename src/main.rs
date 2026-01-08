@@ -5,6 +5,7 @@ mod driver_dryrun;
 mod driver_factory;
 mod driver_script;
 mod environment;
+mod error;
 mod orchestrator;
 mod output;
 
@@ -12,6 +13,7 @@ mod output;
 pub mod testing;
 
 use cni_gesprek::utils;
+use error::CniResult;
 
 use clap::Parser;
 use cni::CniContext;
@@ -19,11 +21,10 @@ use command_dispatcher::{CommandConfig, CommandDispatcher};
 use driver_factory::DriverFactory;
 use environment::SystemEnvironmentProvider;
 use output::{OutputWriter, StandardOutputWriter};
-use std::error::Error;
 
 // --- Main Logic ---
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> CniResult<()> {
     // Parse CLI arguments using clap
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None)]

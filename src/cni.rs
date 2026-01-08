@@ -1,8 +1,7 @@
-use std::error::Error;
-
 use serde::{Deserialize, Serialize};
 
 use crate::environment::{CniEnvironment, EnvironmentProvider};
+use crate::error::{CniResult, ConfigError};
 
 /// CNI configuration structure from JSON input
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,10 +46,7 @@ pub struct CniContext {
 
 impl CniContext {
     /// Create a new CniContext by loading environment and parsing configuration
-    pub fn load<E: EnvironmentProvider>(
-        env_provider: &E,
-        args_dry_run: bool,
-    ) -> Result<Self, Box<dyn Error>> {
+    pub fn load<E: EnvironmentProvider>(env_provider: &E, args_dry_run: bool) -> CniResult<Self> {
         // Load CNI environment variables
         let environment = CniEnvironment::load(env_provider);
 
@@ -71,7 +67,7 @@ impl CniContext {
     }
 
     /// Parse JSON configuration from stdin for commands that require it
-    fn parse_stdin_config(command: &str) -> Result<Option<CniConfig>, Box<dyn Error>> {
+    fn parse_stdin_config(command: &str) -> CniResult<Option<CniConfig>> {
         if ["ADD", "DEL", "CHECK", "STATUS"].contains(&command) {
             // In tests, we don't want to actually read from stdin
             #[cfg(test)]
@@ -87,8 +83,10 @@ impl CniContext {
                 let bytes_read = io::stdin().read_to_string(&mut buffer)?;
 
                 if bytes_read > 0 && !buffer.trim().is_empty() {
-                    let config: CniConfig = serde_json::from_str(&buffer)
-                        .map_err(|e| format!("Failed to parse CNI configuration: {}", e))?;
+                    let config: CniConfig =
+                        serde_json::from_str(&buffer).map_err(|e| ConfigError::ParseError {
+                            message: format!("Failed to parse CNI configuration: {}", e),
+                        })?;
                     Ok(Some(config))
                 } else {
                     Ok(None)
@@ -100,10 +98,14 @@ impl CniContext {
     }
 
     /// Get the configuration, returning an error if it's required but missing
-    pub fn require_config(&self) -> Result<&CniConfig, Box<dyn Error>> {
-        self.config
-            .as_ref()
-            .ok_or("Missing CNI configuration on stdin".into())
+    pub fn require_config(&self) -> CniResult<&CniConfig> {
+        self.config.as_ref().ok_or_else(|| {
+            ConfigError::MissingConfig {
+                command: self.environment.command.clone(),
+                reason: "Missing CNI configuration on stdin".to_string(),
+            }
+            .into()
+        })
     }
 
     /// Check if this is a command that requires configuration
@@ -112,16 +114,20 @@ impl CniContext {
     }
 
     /// Validate that the configuration is available if needed
-    pub fn validate_config(&self) -> Result<(), Box<dyn Error>> {
+    pub fn validate_config(&self) -> CniResult<()> {
         if self.needs_config() && self.config.is_none() {
-            return Err("Configuration required for this CNI command but none provided".into());
+            return Err(ConfigError::MissingConfig {
+                command: self.environment.command.clone(),
+                reason: "Configuration required for this CNI command but none provided".to_string(),
+            }
+            .into());
         }
         Ok(())
     }
 }
 
 impl TryFrom<&CniEnvironment> for CniContext {
-    type Error = Box<dyn Error>;
+    type Error = crate::error::CniError;
 
     fn try_from(environment: &CniEnvironment) -> Result<Self, Self::Error> {
         // Parse configuration if needed

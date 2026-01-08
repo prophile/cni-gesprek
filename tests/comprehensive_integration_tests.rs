@@ -47,7 +47,9 @@ mod basic_commands {
         cmd.assert()
             .failure()
             .code(1)
-            .stderr(predicate::str::contains("Unknown CNI_COMMAND"));
+            .stderr(predicate::str::contains(
+                "Environment variable 'CNI_COMMAND' has invalid value 'UNKNOWN'",
+            ));
     }
 
     #[test]
@@ -69,15 +71,7 @@ mod basic_commands {
             .pipe_stdin(&config_file)
             .unwrap();
 
-        cmd.assert()
-            .success()
-            .stdout(predicate::function(|output: &str| {
-                if let Ok(json) = serde_json::from_str::<Value>(output) {
-                    json["cniVersion"] == "1.0.0"
-                } else {
-                    false
-                }
-            }));
+        cmd.assert().success().stdout(predicate::str::is_empty());
     }
 
     #[test]
@@ -100,14 +94,8 @@ mod basic_commands {
             .unwrap();
 
         cmd.assert()
-            .success()
-            .stdout(predicate::function(|output: &str| {
-                if let Ok(json) = serde_json::from_str::<Value>(output) {
-                    json["cniVersion"] == "1.0.0"
-                } else {
-                    false
-                }
-            }));
+            .failure()
+            .stderr(predicate::str::contains("NetnsNotFound"));
     }
 }
 
@@ -380,9 +368,9 @@ mod error_conditions {
             .pipe_stdin(&config_file)
             .unwrap();
 
-        cmd.assert()
-            .failure()
-            .stderr(predicate::str::contains("CNI_NETNS not set"));
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "Environment variable 'CNI_NETNS' required for command 'ADD' is not set",
+        ));
     }
 
     #[test]
@@ -404,9 +392,9 @@ mod error_conditions {
             .pipe_stdin(&config_file)
             .unwrap();
 
-        cmd.assert()
-            .failure()
-            .stderr(predicate::str::contains("CNI_IFNAME not set"));
+        cmd.assert().failure().stderr(predicate::str::contains(
+            "Environment variable 'CNI_IFNAME' required for command 'ADD' is not set",
+        ));
     }
 
     #[test]

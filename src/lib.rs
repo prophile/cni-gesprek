@@ -5,6 +5,7 @@ pub mod driver_dryrun;
 pub mod driver_factory;
 pub mod driver_script;
 pub mod environment;
+pub mod error;
 pub mod orchestrator;
 pub mod output;
 
