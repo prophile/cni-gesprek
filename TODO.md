@@ -128,16 +128,71 @@
 - Consider splitting into multiple smaller traits
 - Add trait documentation with usage examples
 
-### 12. Tight Coupling
+### 12a. CNI Protocol Parsing and Environment Variable Handling
 **Priority**: Medium
 **Status**: Open
-**Location:** [src/main.rs](src/main.rs#L125-L285)  
-**Description:** Main function handles multiple concerns making testing difficult  
+**Location:** [src/main.rs](src/main.rs#L140-L150)  
+**Description:** CNI protocol parsing is tightly coupled to main function and mixes environment variable reading with JSON parsing  
 **Recommended Actions:**
-- Extract CNI protocol handling into separate module
-- Create testable business logic layer
-- Implement dependency injection for drivers
-- Separate CLI argument parsing from core logic
+- Extract CNI environment variable parsing into a dedicated module
+- Create a CniContext struct to hold all CNI-specific data (command, config, env vars)
+- Implement From/TryFrom traits for converting from environment to CniContext
+- Separate JSON configuration parsing from stdin handling
+
+### 12b. Command Dispatch and Driver Selection Logic
+**Priority**: Medium
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L130-L140), [src/main.rs](src/main.rs#L152-L165)  
+**Description:** Driver selection and command dispatching are hardcoded in main function making it difficult to test different driver behaviors  
+**Recommended Actions:**
+- Extract driver selection logic into a factory pattern
+- Create a CommandDispatcher that can route CNI commands to handlers
+- Make driver selection configurable/injectable for testing
+- Separate dry-run logic from driver instantiation
+
+### 12c. Command Handler Parameter Duplication
+**Priority**: Medium
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L170-L285)  
+**Description:** All command handlers take similar parameters (args, config, driver) creating tight coupling and parameter duplication  
+**Recommended Actions:**
+- Create a CommandContext struct containing all common parameters
+- Refactor command handlers to take CommandContext instead of individual parameters
+- Consider implementing a Command trait for different CNI operations
+- Add builder pattern for constructing CommandContext
+
+### 12d. Environment Variable Access Throughout Handlers
+**Priority**: Medium
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L175), [src/main.rs](src/main.rs#L290-L295), [src/main.rs](src/main.rs#L335-L340)  
+**Description:** Command handlers directly access environment variables making them difficult to test and tightly coupled to system state  
+**Recommended Actions:**
+- Create an EnvironmentProvider trait to abstract environment access
+- Implement MockEnvironmentProvider for testing
+- Pass environment data through CommandContext instead of direct env::var calls
+- Validate all required environment variables upfront
+
+### 12e. Direct Output and Error Handling in Command Handlers
+**Priority**: Medium
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L250), [src/main.rs](src/main.rs#L280), [src/main.rs](src/main.rs#L163-L165)  
+**Description:** Command handlers directly print to stdout and handle errors inconsistently, making them hard to test and reuse  
+**Recommended Actions:**
+- Create an OutputWriter trait to abstract stdout/stderr operations
+- Return structured results from command handlers instead of printing directly
+- Implement consistent error handling across all command types
+- Separate output formatting from business logic
+
+### 12f. Business Logic Mixed with System Integration
+**Priority**: Medium
+**Status**: Open
+**Location:** [src/main.rs](src/main.rs#L180-L230)  
+**Description:** Core CNI business logic (IP generation, interface configuration) is mixed with system calls and I/O operations  
+**Recommended Actions:**
+- Extract core business logic into a separate CniOrchestrator/CniService layer
+- Create pure functions for CNI operations that don't depend on system state
+- Implement integration layer that coordinates between business logic and drivers
+- Add comprehensive unit tests for isolated business logic
 
 ## Minor Issues
 
