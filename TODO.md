@@ -131,16 +131,19 @@
 - Consider splitting into multiple smaller traits
 - Add trait documentation with usage examples
 
-### 12a. CNI Protocol Parsing and Environment Variable Handling
+### 12a. CNI Protocol Parsing and Environment Variable Handling ✅ COMPLETED
 **Priority**: Medium
-**Status**: Open
+**Status**: Resolved ✅
 **Location:** [src/main.rs](src/main.rs#L140-L150)  
 **Description:** CNI protocol parsing is tightly coupled to main function and mixes environment variable reading with JSON parsing  
-**Recommended Actions:**
-- Extract CNI environment variable parsing into a dedicated module
-- Create a CniContext struct to hold all CNI-specific data (command, config, env vars)
-- Implement From/TryFrom traits for converting from environment to CniContext
-- Separate JSON configuration parsing from stdin handling
+**Completed Actions:**
+- ✅ Created dedicated [src/cni.rs](src/cni.rs) module to consolidate CNI protocol handling
+- ✅ Implemented `CniContext` struct to hold all CNI-specific data (command, config, env vars)
+- ✅ Added `CniContext::load()` method for unified environment parsing and configuration loading
+- ✅ Separated JSON configuration parsing from stdin handling with conditional compilation for tests
+- ✅ Refactored main() function to use `CniContext` instead of scattered parsing logic
+- ✅ Updated all command handlers to use `CniContext` for consistent access to CNI data
+- ✅ Added comprehensive unit test coverage with proper test isolation
 
 ### 12b. Command Dispatch and Driver Selection Logic
 **Priority**: Medium

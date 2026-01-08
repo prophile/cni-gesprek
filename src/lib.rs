@@ -1,3 +1,4 @@
+pub mod cni;
 pub mod driver;
 pub mod driver_dryrun;
 pub mod driver_script;

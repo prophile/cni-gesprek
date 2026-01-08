@@ -1,3 +1,4 @@
+mod cni;
 mod driver;
 mod driver_dryrun;
 mod driver_script;
@@ -10,48 +11,17 @@ pub mod testing;
 use cni_gesprek::utils;
 
 use clap::Parser;
+use cni::{CniConfig, CniContext, CniDns};
 use driver::NetworkDriver;
 use driver_dryrun::DryRunDriver;
 use driver_script::ScriptDriver;
-use environment::{CniEnvironment, EnvironmentProvider, SystemEnvironmentProvider};
+use environment::SystemEnvironmentProvider;
 use output::{OutputWriter, StandardOutputWriter};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::io::{self, Read};
 use std::path::Path;
 
-// --- Configuration Structures (CNI Spec) ---
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct CniConfig {
-    #[serde(rename = "cniVersion")]
-    cni_version: String,
-    name: String,
-    #[serde(rename = "type")]
-    plugin_type: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    master: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "podCIDR")]
-    pod_cidr: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dns: Option<CniDns>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct CniDns {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nameservers: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    domain: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    search: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    options: Option<Vec<String>>,
-}
+// --- CNI Result Structures ---
 
 #[derive(Serialize, Deserialize, Debug)]
 struct CniResult {
@@ -98,35 +68,21 @@ struct Args {
 /// This eliminates parameter duplication and makes it easier to add new context data
 struct CommandContext<'a> {
     args: Args,
-    config: Option<CniConfig>,
-    cni_env: CniEnvironment,
-    is_dry_run: bool,
+    cni: CniContext,
     output: &'a dyn OutputWriter,
 }
 
 impl<'a> CommandContext<'a> {
     /// Create a new CommandContext
-    fn new(
-        args: Args,
-        config: Option<CniConfig>,
-        cni_env: CniEnvironment,
-        is_dry_run: bool,
-        output: &'a dyn OutputWriter,
-    ) -> Self {
-        Self {
-            args,
-            config,
-            cni_env,
-            is_dry_run,
-            output,
-        }
+    fn new(args: Args, cni: CniContext, output: &'a dyn OutputWriter) -> Self {
+        Self { args, cni, output }
     }
 
     /// Get the master interface, preferring CLI args over config
     fn get_master_interface(&self, driver: &dyn NetworkDriver) -> Result<String, Box<dyn Error>> {
         if let Some(cli_iface) = &self.args.interface {
             Ok(cli_iface.clone())
-        } else if let Some(conf_master) = self.config.as_ref().and_then(|c| c.master.as_ref()) {
+        } else if let Some(conf_master) = self.cni.config.as_ref().and_then(|c| c.master.as_ref()) {
             Ok(conf_master.clone())
         } else {
             driver.detect_upstream_interface()
@@ -135,9 +91,7 @@ impl<'a> CommandContext<'a> {
 
     /// Ensure configuration is available, returning an error if missing
     fn require_config(&self) -> Result<&CniConfig, Box<dyn Error>> {
-        self.config
-            .as_ref()
-            .ok_or("Missing CNI configuration on stdin".into())
+        self.cni.require_config()
     }
 }
 
@@ -149,42 +103,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     let env_provider = SystemEnvironmentProvider::default();
 
-    // Load and validate CNI environment
-    let cni_env = CniEnvironment::load(&env_provider);
-
-    // Validate environment variables for the command early
-    if let Err(e) = cni_env.validate_for_command() {
+    // Load CNI context (environment + configuration parsing)
+    let cni_context = CniContext::load(&env_provider, args.dry_run).map_err(|e| {
         let output_writer = StandardOutputWriter;
-        let _ = output_writer.write_error(&format!("Environment validation error: {}", e));
-        std::process::exit(1);
-    }
+        let _ = output_writer.write_error(&format!("CNI context loading error: {}", e));
+        e
+    })?;
 
-    // Check for DRY_RUN environment variable or command line flag
-    let is_dry_run = args.dry_run || env_provider.exists("DRY_RUN");
-
-    let driver: Box<dyn NetworkDriver> = if is_dry_run {
+    // Determine driver based on dry run status
+    let driver: Box<dyn NetworkDriver> = if cni_context.is_dry_run {
         Box::new(DryRunDriver)
     } else {
         Box::new(ScriptDriver)
     };
 
-    let cni_config: Option<CniConfig> =
-        if ["ADD", "DEL", "CHECK", "STATUS"].contains(&cni_env.command.as_str()) {
-            let mut buffer = String::new();
-            let _ = io::stdin().read_to_string(&mut buffer);
-            if !buffer.is_empty() {
-                serde_json::from_str(&buffer).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
     let output_writer = StandardOutputWriter;
-    let ctx = CommandContext::new(args, cni_config, cni_env, is_dry_run, &output_writer);
+    let ctx = CommandContext::new(args, cni_context, &output_writer);
 
-    match ctx.cni_env.command.as_str() {
+    match ctx.cni.environment.command.as_str() {
         "ADD" => cmd_add(&ctx, &*driver),
         "DEL" => cmd_del(&ctx, &*driver),
         "CHECK" => cmd_check(&ctx, &*driver),
@@ -192,8 +128,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         "VERSION" => cmd_version(&ctx),
         "STATUS" => cmd_status(&ctx, &*driver),
         _ => {
-            ctx.output
-                .write_error(&format!("Unknown CNI_COMMAND: {}", ctx.cni_env.command))?;
+            ctx.output.write_error(&format!(
+                "Unknown CNI_COMMAND: {}",
+                ctx.cni.environment.command
+            ))?;
             std::process::exit(1);
         }
     }
@@ -201,9 +139,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
     let config = ctx.require_config()?;
-    let netns_str = ctx.cni_env.get_netns()?;
+    let netns_str = ctx.cni.environment.get_netns()?;
     let netns_path = Path::new(netns_str);
-    let ifname = ctx.cni_env.get_ifname()?;
+    let ifname = ctx.cni.environment.get_ifname()?;
 
     // 1. Determine Host Interface
     let master_interface = ctx.get_master_interface(driver)?;
@@ -297,13 +235,13 @@ fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<d
     // DEL command should be idempotent - succeed even if interface doesn't exist
 
     // Get required environment variables from CniEnvironment
-    let netns_str = ctx.cni_env.get_netns()?;
-    let _container_id = ctx.cni_env.get_container_id()?;
-    let ifname = ctx.cni_env.get_ifname()?;
+    let netns_str = ctx.cni.environment.get_netns()?;
+    let _container_id = ctx.cni.environment.get_container_id()?;
+    let ifname = ctx.cni.environment.get_ifname()?;
 
     let netns_path = Path::new(netns_str);
     // Check if the network namespace exists at all (skip in dry-run mode)
-    if !ctx.is_dry_run && !netns_path.exists() {
+    if !ctx.cni.is_dry_run && !netns_path.exists() {
         // Netns doesn't exist, nothing to clean up - this is success
         return Ok(());
     }
@@ -335,14 +273,14 @@ fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box
     }
 
     // Get required environment variables from CniEnvironment
-    let netns_str = ctx.cni_env.get_netns()?;
-    let _container_id = ctx.cni_env.get_container_id()?;
-    let ifname = ctx.cni_env.get_ifname()?;
+    let netns_str = ctx.cni.environment.get_netns()?;
+    let _container_id = ctx.cni.environment.get_container_id()?;
+    let ifname = ctx.cni.environment.get_ifname()?;
 
     let netns_path = Path::new(netns_str);
 
     // Check that the network namespace exists (skip in dry-run mode)
-    if !ctx.is_dry_run && !netns_path.exists() {
+    if !ctx.cni.is_dry_run && !netns_path.exists() {
         return Err(format!("Network namespace does not exist: {}", netns_str).into());
     }
 
