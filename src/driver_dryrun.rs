@@ -3,13 +3,10 @@ use std::error::Error;
 use std::net::Ipv6Addr;
 use std::path::Path;
 
+#[derive(Default)]
 pub struct DryRunDriver;
 
 impl DryRunDriver {
-    pub fn new() -> Self {
-        Self
-    }
-
     fn log(&self, msg: &str) {
         eprintln!("[DRY-RUN] {}", msg);
     }
@@ -150,21 +147,21 @@ mod tests {
 
     #[test]
     fn test_dry_run_driver_creation() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         // Just verify it can be created without errors
         assert_eq!(std::mem::size_of_val(&driver), 0); // ZST
     }
 
     #[test]
     fn test_detect_upstream_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.detect_upstream_interface().unwrap();
         assert_eq!(result, "eth0");
     }
 
     #[test]
     fn test_get_interface_gateway() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let gateway = driver.get_interface_gateway("eth0").unwrap();
         assert!(gateway.is_some());
         assert_eq!(gateway.unwrap().to_string(), "fe80::1");
@@ -172,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_get_interface_subnet() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let subnet = driver.get_interface_subnet("eth0").unwrap();
         assert_eq!(subnet.address.to_string(), "2001:db8::1");
         assert_eq!(subnet.prefix_length, 64);
@@ -180,28 +177,28 @@ mod tests {
 
     #[test]
     fn test_check_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.check_interface("eth0");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_create_ipvlan() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.create_ipvlan("eth0", "l2", "veth123abc");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_delete_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.delete_interface("veth123abc");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_set_netns() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
         let result = driver.set_netns("veth123abc", netns_path);
         assert!(result.is_ok());
@@ -209,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_configure_in_netns_without_gateway() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
         let result =
             driver.configure_in_netns(netns_path, "veth123abc", "eth0", "2001:db8::100/64", None);
@@ -218,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_configure_in_netns_with_gateway() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
         let gateway = "fe80::1".parse::<Ipv6Addr>().unwrap();
         let result = driver.configure_in_netns(
@@ -233,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_delete_interface_in_netns() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
         let result = driver.delete_interface_in_netns(netns_path, "eth0");
         assert!(result.is_ok());
@@ -241,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_interface_exists_in_netns() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
         let result = driver
             .interface_exists_in_netns(netns_path, "eth0")
@@ -251,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_get_interface_gateway_different_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let gateway = driver.get_interface_gateway("wlan0").unwrap();
         assert!(gateway.is_some());
         assert_eq!(gateway.unwrap().to_string(), "fe80::1");
@@ -259,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_get_interface_subnet_different_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let subnet = driver.get_interface_subnet("wlan0").unwrap();
         assert_eq!(subnet.address.to_string(), "2001:db8::1");
         assert_eq!(subnet.prefix_length, 64);
@@ -267,21 +264,21 @@ mod tests {
 
     #[test]
     fn test_check_interface_different_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.check_interface("lo");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_create_ipvlan_different_mode() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let result = driver.create_ipvlan("eth0", "l3", "veth456def");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_interface_exists_in_netns_different_interface() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/run/netns/container123");
         let result = driver
             .interface_exists_in_netns(netns_path, "veth0")
@@ -291,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_configure_in_netns_long_interface_name() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test-namespace-with-long-name");
         let result = driver.configure_in_netns(
             netns_path,
@@ -305,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_configure_in_netns_ipv6_edge_case_addresses() {
-        let driver = DryRunDriver::new();
+        let driver = DryRunDriver;
         let netns_path = Path::new("/var/run/netns/test");
 
         // Test with different IPv6 prefix lengths
