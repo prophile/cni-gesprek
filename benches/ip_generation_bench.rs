@@ -32,8 +32,8 @@ fn generate_random_ip_bench(cidr: &str) -> Result<String, Box<dyn std::error::Er
         }
     };
 
-    let mut rng = rand::thread_rng();
-    let random_part: u128 = rng.gen();
+    let mut rng = rand::rng();
+    let random_part: u128 = rng.random();
     let final_u128 = (base_u128 & mask) | (random_part & !mask);
 
     let final_ip = Ipv6Addr::from(final_u128);

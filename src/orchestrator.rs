@@ -3,6 +3,7 @@ use std::net::Ipv6Addr;
 
 use crate::cni::{CniConfig, CniDns};
 use crate::utils;
+use rand::Rng;
 
 use serde::{Deserialize, Serialize};
 
@@ -75,9 +76,10 @@ impl CniOrchestrator {
         let target_ip = utils::generate_random_ip(&cidr_string)?;
 
         // Generate a temporary interface name
+        let mut rng = rand::rng();
         let random_suffix: String = (0..8)
             .map(|_| {
-                let idx = rand::random::<usize>() % 16;
+                let idx = rng.random::<u8>() % 16;
                 format!("{:x}", idx)
             })
             .collect();

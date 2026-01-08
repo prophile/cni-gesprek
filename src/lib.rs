@@ -40,8 +40,8 @@ pub mod utils {
             }
             0 => {
                 // Entire IPv6 space, generate completely random address
-                let mut rng = rand::thread_rng();
-                let random_addr = Ipv6Addr::from(rng.gen::<u128>());
+                let mut rng = rand::rng();
+                let random_addr = Ipv6Addr::from(rng.random::<u128>());
                 return Ok(format!("{}/0", random_addr));
             }
             _ => {
@@ -61,8 +61,8 @@ pub mod utils {
         };
 
         // Generate random bits for the host portion
-        let mut rng = rand::thread_rng();
-        let random_host_bits = rng.gen::<u128>() & host_mask;
+        let mut rng = rand::rng();
+        let random_host_bits = rng.random::<u128>() & host_mask;
 
         // Combine network portion with random host bits
         let final_ip_u128 = network_u128 | random_host_bits;
