@@ -1,0 +1,9 @@
+# Clippy configuration for CNI Gesprek
+# This file configures clippy lints to match the project's code quality standards
+
+# CNI-specific lints that make sense for a networking plugin
+too-many-arguments-threshold = 8  # Network operations often need many parameters
+type-complexity-threshold = 250   # Complex network types are sometimes necessary
+
+# Allow comparison to zero for clarity in networking code
+allow-comparison-to-zero = true

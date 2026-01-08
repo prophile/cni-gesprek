@@ -30,6 +30,23 @@ impl ScriptDriver {
             return Err(format!("Interface name '{}' cannot start with a dot", ifname).into());
         }
 
+        // Check for null bytes and dangerous characters
+        if ifname.contains('\0') {
+            return Err(format!("Interface name '{}' contains null byte", ifname).into());
+        }
+
+        // Check for shell metacharacters that could enable injection
+        let dangerous_chars = ['&', '|', ';', '`', '$', '>', '<', ' ', '\n', '\r', '\t'];
+        for ch in dangerous_chars {
+            if ifname.contains(ch) {
+                return Err(format!(
+                    "Interface name '{}' contains dangerous character '{}'",
+                    ifname, ch
+                )
+                .into());
+            }
+        }
+
         // Only allow alphanumeric, hyphens, underscores, dots - no shell metacharacters
         let valid_chars_re = Regex::new(r"^[a-zA-Z0-9._-]+$").unwrap();
         if !valid_chars_re.is_match(ifname) {
@@ -43,6 +60,22 @@ impl ScriptDriver {
     fn validate_ip_cidr(ip_cidr: &str) -> Result<(), Box<dyn Error>> {
         if ip_cidr.is_empty() {
             return Err("IP/CIDR cannot be empty".into());
+        }
+
+        // Check for dangerous characters that could enable injection
+        let dangerous_chars = [
+            '&', '|', ';', '`', '$', '>', '<', ' ', '\n', '\r', '\t', '\0',
+        ];
+        for ch in dangerous_chars {
+            if ip_cidr.contains(ch) {
+                return Err(format!("IP/CIDR contains dangerous character '{}'", ch).into());
+            }
+        }
+
+        // Length limit to prevent potential buffer overflow
+        if ip_cidr.len() > 43 {
+            // Max IPv6 CIDR length
+            return Err(format!("IP/CIDR string too long: {}", ip_cidr).into());
         }
 
         // Allow only valid IPv4 or IPv6 CIDR format (no shell metacharacters)
@@ -71,10 +104,25 @@ impl ScriptDriver {
         // IPv6Addr is already parsed, so it's safe, but we can add additional checks
         let addr_str = addr.to_string();
 
+        // Reject multicast addresses for interface configuration
+        if addr.is_multicast() {
+            return Err(format!("Multicast IPv6 address not allowed: {}", addr_str).into());
+        }
+
+        // Reject unspecified address (::)
+        if addr.is_unspecified() {
+            return Err(format!("Unspecified IPv6 address not allowed: {}", addr_str).into());
+        }
+
         // Ensure no unexpected characters (paranoid check)
         let ipv6_re = Regex::new(r"^[0-9a-fA-F:]+$").unwrap();
         if !ipv6_re.is_match(&addr_str) {
             return Err(format!("Invalid IPv6 address format: {}", addr_str).into());
+        }
+
+        // Length check to prevent overflow
+        if addr_str.len() > 39 {
+            return Err(format!("IPv6 address string too long: {}", addr_str).into());
         }
 
         Ok(())
@@ -86,6 +134,31 @@ impl ScriptDriver {
 
         if netns_str.is_empty() {
             return Err("Network namespace path cannot be empty".into());
+        }
+
+        // Path length limit
+        if netns_str.len() > 256 {
+            return Err(format!("Network namespace path too long: {}", netns_str).into());
+        }
+
+        // Check for path traversal patterns
+        if netns_str.contains("..") {
+            return Err(format!("Path traversal detected: {}", netns_str).into());
+        }
+
+        // Check for null bytes and dangerous characters
+        if netns_str.contains('\0') {
+            return Err(format!("Null byte in netns path: {}", netns_str).into());
+        }
+
+        // Check for shell metacharacters
+        let dangerous_chars = ['&', '|', ';', '`', '$', '>', '<', ' ', '\n', '\r', '\t'];
+        for ch in dangerous_chars {
+            if netns_str.contains(ch) {
+                return Err(
+                    format!("Dangerous character '{}' in netns path: {}", ch, netns_str).into(),
+                );
+            }
         }
 
         // Only allow valid netns path patterns
@@ -124,6 +197,32 @@ impl ScriptDriver {
         let allowed_commands = ["ip", "nsenter", "sysctl"];
         if !allowed_commands.contains(&cmd) {
             return Err(format!("Command not allowed: {}", cmd).into());
+        }
+
+        // Additional security checks for command arguments
+        for arg in args {
+            // Check for null bytes
+            if arg.contains('\0') {
+                return Err(format!("Null byte in command argument: {}", arg).into());
+            }
+
+            // Check argument length to prevent buffer overflow
+            if arg.len() > 1024 {
+                return Err(format!("Command argument too long: {}", arg).into());
+            }
+
+            // Check for dangerous sequences
+            let dangerous_sequences = ["$(", "`", "&", "||", "&&", ";", "|", ">", "<"];
+            for seq in dangerous_sequences {
+                if arg.contains(seq) {
+                    return Err(format!("Dangerous sequence '{}' in argument: {}", seq, arg).into());
+                }
+            }
+        }
+
+        // Limit number of arguments
+        if args.len() > 32 {
+            return Err(format!("Too many arguments: {}", args.len()).into());
         }
 
         let output = Command::new(cmd).args(args).output()?;
