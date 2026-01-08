@@ -1,0 +1,48 @@
+# Tarpaulin configuration file for code coverage measurement
+#
+# This file configures cargo-tarpaulin to measure code coverage for the
+# CNI Gesprek project, focusing on core business logic while excluding
+# test modules, example code, and other non-production code.
+
+[report]
+# Output formats for coverage reports
+out = ["Html", "Xml", "Lcov"]
+
+[coverage]
+# Timeout for test execution (duration string format)
+timeout = "300s"
+
+# Include all features when measuring coverage
+all-features = true
+
+# Exclude test-only code from coverage measurement
+exclude-files = [
+    "*/tests/*",           # Integration tests
+    "*/benches/*",         # Benchmark code  
+    "*/examples/*",        # Example code
+    "*/src/testing/*",     # Test-only modules
+    "*/src/bin/*",         # Binary crates (if any)
+    "*/target/*",          # Build artifacts
+]
+
+# Target minimum coverage percentage for core business logic
+fail-under = 90
+
+# Ignore panic paths in coverage calculation since they represent
+# error conditions that should not affect normal code coverage
+ignore-panics = true
+
+# Include the entire workspace in coverage measurement
+workspace = true
+
+# Verbose output for debugging coverage issues
+verbose = true
+
+[tool]
+# Additional options for coverage measurement
+
+# Skip functions with #[cfg(test)] attribute
+skip-clean = false
+
+# Include functions that are never called (dead code)
+include-tests = false

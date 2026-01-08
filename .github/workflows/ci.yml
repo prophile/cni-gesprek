@@ -113,10 +113,52 @@ jobs:
         path: target/${{ matrix.target }}/release/cni-gesprek
         if-no-files-found: error
 
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Install tarpaulin
+      run: cargo install cargo-tarpaulin
+    - name: Generate code coverage
+      run: |
+        cargo tarpaulin --verbose \
+          --all-features \
+          --workspace \
+          --timeout 300 \
+          --exclude-files "*/tests/*" "*/benches/*" "*/examples/*" \
+          --ignore-panics \
+          --out xml \
+          --output-dir ./coverage/
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        file: ./coverage/cobertura.xml
+        fail_ci_if_error: false
+        verbose: true
+    - name: Check coverage threshold
+      run: |
+        cargo tarpaulin --verbose \
+          --all-features \
+          --workspace \
+          --timeout 300 \
+          --exclude-files "*/tests/*" "*/benches/*" "*/examples/*" "*/src/testing/*" "*/src/bin/*" \
+          --ignore-panics \
+          --fail-under 90 \
+          --output-dir ./coverage/
+    - name: Upload coverage artifacts
+      uses: actions/upload-artifact@v6
+      with:
+        name: coverage-report
+        path: coverage/
+        if-no-files-found: error
+
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, fmt, clippy, compile-checks, build]
+    needs: [test, fmt, clippy, compile-checks, build, coverage]
     runs-on: ubuntu-latest
     strategy:
       matrix:

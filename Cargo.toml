@@ -30,6 +30,7 @@ assert_cmd = "2.0"
 predicates = "3.0"
 proptest = "1.0"
 criterion = { version = "0.8", features = ["html_reports"] }
+cargo-tarpaulin = "0.32"
 
 [[bench]]
 name = "ip_generation_bench"
