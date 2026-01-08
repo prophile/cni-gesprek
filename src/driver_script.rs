@@ -10,6 +10,12 @@ use std::time::{Duration, Instant};
 pub struct ScriptDriver;
 
 impl ScriptDriver {
+    // DAD (Duplicate Address Detection) configuration constants
+    const DAD_TIMEOUT_SECS: u64 = 10;
+    const DAD_INITIAL_INTERVAL_MS: u64 = 50;
+    const DAD_MAX_INTERVAL_MS: u64 = 500;
+    const DAD_BACKOFF_MULTIPLIER: f64 = 1.5;
+
     /// Validate interface name against Linux naming rules and prevent injection
     fn validate_interface_name(ifname: &str) -> Result<(), Box<dyn Error>> {
         if ifname.is_empty() {
@@ -134,6 +140,114 @@ impl ScriptDriver {
         }
 
         Ok(String::from_utf8(output.stdout)?.trim().to_string())
+    }
+
+    /// Wait for IPv6 Duplicate Address Detection (DAD) to complete with exponential backoff
+    fn wait_for_dad_completion(
+        &self,
+        netns_path: &Path,
+        interface: &str,
+        target_ip: &str,
+    ) -> Result<(), Box<dyn Error>> {
+        let start = Instant::now();
+        let timeout = Duration::from_secs(Self::DAD_TIMEOUT_SECS);
+        let mut current_interval = Self::DAD_INITIAL_INTERVAL_MS;
+        let mut attempts = 0;
+
+        let netns_str = netns_path.to_str().ok_or("Invalid UTF-8 in netns path")?;
+
+        let ns_args = |cmd: &[&str]| -> Vec<String> {
+            let mut args = vec![
+                format!("--net={}", netns_str),
+                "-F".to_string(),
+                "--".to_string(),
+            ];
+            args.extend(cmd.iter().map(|s| s.to_string()));
+            args
+        };
+
+        loop {
+            attempts += 1;
+
+            // Check for timeout
+            if start.elapsed() > timeout {
+                return Err(format!(
+                    "Timed out waiting for IPv6 DAD to complete for {} on interface {} after {:.1}s ({} attempts)",
+                    target_ip, interface, start.elapsed().as_secs_f64(), attempts
+                ).into());
+            }
+
+            // Query interface state
+            let args = ns_args(&["ip", "-j", "-6", "addr", "show", "dev", interface]);
+            let output = match Self::run_cmd(
+                "nsenter",
+                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            ) {
+                Ok(output) => output,
+                Err(e) => {
+                    return Err(format!(
+                        "Failed to query IPv6 address state for {} on interface {}: {}",
+                        target_ip, interface, e
+                    )
+                    .into());
+                }
+            };
+
+            // Parse JSON output
+            let entries: Vec<serde_json::Value> = serde_json::from_str(&output)
+                .map_err(|e| format!("Failed to parse addr show JSON: {}", e))?;
+
+            let mut found_our_ip = false;
+            let mut is_ready = false;
+            let mut is_failed = false;
+
+            // Check address state
+            for entry in entries {
+                if let Some(addr_infos) = entry.get("addr_info").and_then(|v| v.as_array()) {
+                    for info in addr_infos {
+                        let local = info.get("local").and_then(|v| v.as_str()).unwrap_or("");
+                        if local == target_ip {
+                            found_our_ip = true;
+                            let flags = info
+                                .get("flags")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+
+                            if flags.contains(&"dadfailed") {
+                                is_failed = true;
+                            } else if !flags.contains(&"tentative") {
+                                is_ready = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Handle DAD results
+            if is_failed {
+                return Err(format!(
+                    "IPv6 DAD failed for {} on interface {} - duplicate address detected after {:.1}s",
+                    target_ip, interface, start.elapsed().as_secs_f64()
+                ).into());
+            }
+
+            if found_our_ip && is_ready {
+                // DAD completed successfully
+                return Ok(());
+            }
+
+            // Wait with exponential backoff
+            thread::sleep(Duration::from_millis(current_interval));
+
+            // Calculate next interval with exponential backoff
+            current_interval = std::cmp::min(
+                (current_interval as f64 * Self::DAD_BACKOFF_MULTIPLIER) as u64,
+                Self::DAD_MAX_INTERVAL_MS,
+            );
+        }
     }
 }
 
@@ -351,59 +465,8 @@ impl NetworkNamespaceOps for ScriptDriver {
         }
 
         // 6. Strict DAD Check
-        let start = Instant::now();
-        let timeout = Duration::from_secs(5);
         let target_ip = ip_cidr.split('/').next().unwrap_or("");
-
-        loop {
-            if start.elapsed() > timeout {
-                return Err("Timed out waiting for IPv6 DAD to complete".into());
-            }
-
-            let args = ns_args(&["ip", "-j", "-6", "addr", "show", "dev", target_ifname]);
-            if let Ok(output) = Self::run_cmd(
-                "nsenter",
-                &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            ) {
-                let entries: Vec<serde_json::Value> = serde_json::from_str(&output)
-                    .map_err(|e| format!("Failed to parse addr show JSON: {}", e))
-                    .unwrap_or_else(|_| Vec::new());
-                let mut found_our_ip = false;
-                let mut is_ready = false;
-                let mut is_failed = false;
-
-                for entry in entries {
-                    if let Some(addr_infos) = entry.get("addr_info").and_then(|v| v.as_array()) {
-                        for info in addr_infos {
-                            let local = info.get("local").and_then(|v| v.as_str()).unwrap_or("");
-                            if local == target_ip {
-                                found_our_ip = true;
-                                let flags = info
-                                    .get("flags")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| {
-                                        arr.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>()
-                                    })
-                                    .unwrap_or_default();
-
-                                if flags.contains(&"dadfailed") {
-                                    is_failed = true;
-                                } else if !flags.contains(&"tentative") {
-                                    is_ready = true;
-                                }
-                            }
-                        }
-                    }
-                }
-                if is_failed {
-                    return Err(format!("IPv6 DAD failed for {}", target_ip).into());
-                }
-                if found_our_ip && is_ready {
-                    break;
-                }
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
+        self.wait_for_dad_completion(netns_path, target_ifname, target_ip)?;
 
         Ok(())
     }

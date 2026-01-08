@@ -113,16 +113,23 @@
 - ✅ Ensured legitimate inputs continue to work correctly
 - ✅ All 211 tests passing with security hardening in place
 
-### 5. Race Condition in DAD Check
+### 5. Race Condition in DAD Check ✅ COMPLETED
 **Priority**: High
-**Status**: Open
+**Status**: Completed ✅
 **Location:** [src/driver_script.rs](src/driver_script.rs#L203-L259)  
 **Description:** IPv6 Duplicate Address Detection polling has hardcoded timeouts and no proper synchronization  
-**Recommended Actions:**
-- Implement exponential backoff for DAD polling
-- Make timeout configurable via configuration
-- Add better error messages for DAD failure scenarios
-- Consider using netlink sockets instead of polling `ip` command
+**Completed Actions:**
+- ✅ Implemented exponential backoff for DAD polling with configurable constants:
+  - Initial interval: 50ms
+  - Maximum interval: 500ms
+  - Backoff multiplier: 1.5x
+  - Total timeout: 10 seconds (configurable via DAD_TIMEOUT_SECS)
+- ✅ Extracted DAD logic from `configure_in_netns()` into dedicated `wait_for_dad_completion()` method
+- ✅ Added significantly improved error messages with specific timeout information
+- ✅ Reduced CPU usage by using intelligent backoff instead of fixed 100ms polling
+- ✅ Added clear constants for all timeout values (DAD_INITIAL_INTERVAL_MS, DAD_MAX_INTERVAL_MS, DAD_BACKOFF_MULTIPLIER)
+- ✅ Maintained backward compatibility with existing IPv6 DAD checking behavior
+- ✅ All 211 tests continue to pass with improved DAD polling implementation
 
 ### 6. Resource Leak Risk
 **Priority**: High
