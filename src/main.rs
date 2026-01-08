@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 // --- Configuration Structures (CNI Spec) ---
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct CniConfig {
     cniVersion: String,
     name: String,
@@ -75,7 +75,7 @@ struct CniIp {
 
 // --- CLI Arguments ---
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(long)]
@@ -86,6 +86,53 @@ struct Args {
 
     #[arg(long)]
     dry_run: bool,
+}
+
+// --- Command Context ---
+
+/// CommandContext consolidates all common parameters passed to CNI command handlers
+/// This eliminates parameter duplication and makes it easier to add new context data
+#[derive(Clone)]
+struct CommandContext {
+    args: Args,
+    config: Option<CniConfig>,
+    cni_env: CniEnvironment,
+    is_dry_run: bool,
+}
+
+impl CommandContext {
+    /// Create a new CommandContext
+    fn new(
+        args: Args,
+        config: Option<CniConfig>,
+        cni_env: CniEnvironment,
+        is_dry_run: bool,
+    ) -> Self {
+        Self {
+            args,
+            config,
+            cni_env,
+            is_dry_run,
+        }
+    }
+
+    /// Get the master interface, preferring CLI args over config
+    fn get_master_interface(&self, driver: &dyn NetworkDriver) -> Result<String, Box<dyn Error>> {
+        if let Some(cli_iface) = &self.args.interface {
+            Ok(cli_iface.clone())
+        } else if let Some(conf_master) = self.config.as_ref().and_then(|c| c.master.as_ref()) {
+            Ok(conf_master.clone())
+        } else {
+            driver.detect_upstream_interface()
+        }
+    }
+
+    /// Ensure configuration is available, returning an error if missing
+    fn require_config(&self) -> Result<&CniConfig, Box<dyn Error>> {
+        self.config
+            .as_ref()
+            .ok_or("Missing CNI configuration on stdin".into())
+    }
 }
 
 // --- Helpers ---
@@ -162,44 +209,34 @@ fn main() -> Result<(), Box<dyn Error>> {
             None
         };
 
-    match cni_env.command.as_str() {
-        "ADD" => cmd_add(&args, cni_config, &*driver, &cni_env),
-        "DEL" => cmd_del(&args, cni_config, &*driver, &cni_env, is_dry_run),
-        "CHECK" => cmd_check(&args, cni_config, &*driver, &cni_env, is_dry_run),
+    let ctx = CommandContext::new(args, cni_config, cni_env, is_dry_run);
+
+    match ctx.cni_env.command.as_str() {
+        "ADD" => cmd_add(&ctx, &*driver),
+        "DEL" => cmd_del(&ctx, &*driver),
+        "CHECK" => cmd_check(&ctx, &*driver),
         "GC" => cmd_success(),
         "VERSION" => cmd_version(),
-        "STATUS" => cmd_status(&args, cni_config, &*driver, &cni_env),
+        "STATUS" => cmd_status(&ctx, &*driver),
         _ => {
-            eprintln!("Unknown CNI_COMMAND: {}", cni_env.command);
+            eprintln!("Unknown CNI_COMMAND: {}", ctx.cni_env.command);
             std::process::exit(1);
         }
     }
 }
 
-fn cmd_add(
-    args: &Args,
-    config: Option<CniConfig>,
-    driver: &dyn NetworkDriver,
-    cni_env: &CniEnvironment,
-) -> Result<(), Box<dyn Error>> {
-    let config = config.ok_or("Missing CNI configuration on stdin")?;
-    let netns_str = cni_env.get_netns()?;
+fn cmd_add(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
+    let config = ctx.require_config()?;
+    let netns_str = ctx.cni_env.get_netns()?;
     let netns_path = Path::new(netns_str);
-    let ifname = cni_env.get_ifname()?;
+    let ifname = ctx.cni_env.get_ifname()?;
 
     // 1. Determine Host Interface
-    let master_interface = if let Some(cli_iface) = &args.interface {
-        cli_iface.clone()
-    } else if let Some(conf_master) = &config.master {
-        conf_master.clone()
-    } else {
-        driver.detect_upstream_interface()?
-    };
-
+    let master_interface = ctx.get_master_interface(driver)?;
     driver.check_interface(&master_interface)?;
 
     // 2. Determine Subnet (CIDR)
-    let cidr_string = if let Some(cli_cidr) = &args.pod_cidr {
+    let cidr_string = if let Some(cli_cidr) = &ctx.args.pod_cidr {
         cli_cidr.clone()
     } else if let Some(conf_cidr) = &config.podCIDR {
         conf_cidr.clone()
@@ -246,7 +283,7 @@ fn cmd_add(
 
     // 8. Output Result
     let result = CniResult {
-        cniVersion: config.cniVersion,
+        cniVersion: config.cniVersion.clone(),
         interfaces: vec![CniInterface {
             name: ifname.to_string(),
             mac: "".to_string(),
@@ -258,7 +295,7 @@ fn cmd_add(
             interface: 0,
         }],
         // UPDATED: Pass through the DNS config provided in the JSON input
-        dns: config.dns,
+        dns: config.dns.clone(),
     };
 
     println!("{}", serde_json::to_string(&result)?);
@@ -266,21 +303,10 @@ fn cmd_add(
     Ok(())
 }
 
-fn cmd_status(
-    args: &Args,
-    config: Option<CniConfig>,
-    driver: &dyn NetworkDriver,
-    _cni_env: &CniEnvironment,
-) -> Result<(), Box<dyn Error>> {
-    let master_interface = if let Some(cli_iface) = &args.interface {
-        cli_iface.clone()
-    } else if let Some(c) = config.as_ref().and_then(|c| c.master.as_ref()) {
-        c.clone()
-    } else {
-        match driver.detect_upstream_interface() {
-            Ok(i) => i,
-            Err(_) => std::process::exit(1),
-        }
+fn cmd_status(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
+    let master_interface = match ctx.get_master_interface(driver) {
+        Ok(i) => i,
+        Err(_) => std::process::exit(1),
     };
 
     driver.check_interface(&master_interface)?;
@@ -292,23 +318,17 @@ fn cmd_version() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn cmd_del(
-    _args: &Args,
-    _config: Option<CniConfig>,
-    driver: &dyn NetworkDriver,
-    cni_env: &CniEnvironment,
-    is_dry_run: bool,
-) -> Result<(), Box<dyn Error>> {
+fn cmd_del(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
     // DEL command should be idempotent - succeed even if interface doesn't exist
 
     // Get required environment variables from CniEnvironment
-    let netns_str = cni_env.get_netns()?;
-    let _container_id = cni_env.get_container_id()?;
-    let ifname = cni_env.get_ifname()?;
+    let netns_str = ctx.cni_env.get_netns()?;
+    let _container_id = ctx.cni_env.get_container_id()?;
+    let ifname = ctx.cni_env.get_ifname()?;
 
     let netns_path = Path::new(netns_str);
     // Check if the network namespace exists at all (skip in dry-run mode)
-    if !is_dry_run && !netns_path.exists() {
+    if !ctx.is_dry_run && !netns_path.exists() {
         // Netns doesn't exist, nothing to clean up - this is success
         return Ok(());
     }
@@ -328,16 +348,10 @@ fn cmd_del(
     }
 }
 
-fn cmd_check(
-    args: &Args,
-    config: Option<CniConfig>,
-    driver: &dyn NetworkDriver,
-    cni_env: &CniEnvironment,
-    is_dry_run: bool,
-) -> Result<(), Box<dyn Error>> {
+fn cmd_check(ctx: &CommandContext, driver: &dyn NetworkDriver) -> Result<(), Box<dyn Error>> {
     // CHECK command validates that the configuration is still valid
 
-    let config = config.ok_or("Missing CNI configuration on stdin")?;
+    let config = ctx.require_config()?;
 
     // Validate CNI version
     if config.cniVersion != "1.0.0" {
@@ -345,25 +359,19 @@ fn cmd_check(
     }
 
     // Get required environment variables from CniEnvironment
-    let netns_str = cni_env.get_netns()?;
-    let _container_id = cni_env.get_container_id()?;
-    let ifname = cni_env.get_ifname()?;
+    let netns_str = ctx.cni_env.get_netns()?;
+    let _container_id = ctx.cni_env.get_container_id()?;
+    let ifname = ctx.cni_env.get_ifname()?;
 
     let netns_path = Path::new(netns_str);
 
     // Check that the network namespace exists (skip in dry-run mode)
-    if !is_dry_run && !netns_path.exists() {
+    if !ctx.is_dry_run && !netns_path.exists() {
         return Err(format!("Network namespace does not exist: {}", netns_str).into());
     }
 
     // Determine master interface to validate it exists
-    let master_interface = if let Some(cli_iface) = &args.interface {
-        cli_iface.clone()
-    } else if let Some(conf_master) = &config.master {
-        conf_master.clone()
-    } else {
-        driver.detect_upstream_interface()?
-    };
+    let master_interface = ctx.get_master_interface(driver)?;
 
     // Verify master interface exists
     driver.check_interface(&master_interface)?;
