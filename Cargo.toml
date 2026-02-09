@@ -28,7 +28,7 @@ path = "src/main.rs"
 tokio = { version = "1.0", features = ["full"] }
 assert_cmd = "2.0"
 predicates = "3.0"
-proptest = "1.0"
+proptest = "1.10"
 criterion = { version = "0.8", features = ["html_reports"] }
 cargo-tarpaulin = "0.32"
 
