@@ -15,7 +15,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4.4", features = ["derive"] }
 rand = "0.9.2"
-tempfile = "3.0"
+tempfile = "3.25"
 wait-timeout = "0.2"
 ipnet = "2.9"
 regex = "1.10"
