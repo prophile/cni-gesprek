@@ -107,7 +107,7 @@ jobs:
     - name: Build release binary
       run: cargo build --release --target ${{ matrix.target }}
     - name: Upload artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: cni-gesprek-${{ matrix.target }}
         path: target/${{ matrix.target }}/release/cni-gesprek
@@ -149,7 +149,7 @@ jobs:
           --fail-under 90 \
           --output-dir ./coverage/
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-report
         path: coverage/
