@@ -238,7 +238,7 @@ jobs:
           org.opencontainers.image.vendor=CNI-Gesprek Team
     
     - name: Build and push Ubuntu-based image
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: .
         file: ./docker/Dockerfile
@@ -250,7 +250,7 @@ jobs:
         cache-to: type=gha,mode=max
         
     - name: Build and push Alpine-based image
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: .
         file: ./docker/Dockerfile.alpine
